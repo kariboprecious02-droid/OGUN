@@ -19,6 +19,7 @@ to going live with M-Pesa collections and API-first payouts.
 | [F. Webhooks](./06-webhooks.md) | X-Ogun-* headers, HMAC-SHA256 verification, replay safety |
 | [G. Testing](./07-testing.md) | All §9 demo scenarios, webhook simulator, sandbox tips |
 | [H. Errors & Failure Reasons](./08-errors.md) | Error codes, failure reasons, retry semantics |
+| [I. Google Document AI](./09-google-document-ai.md) | Enabling live document extraction for the compliance pipeline |
 
 ## Core principles
 

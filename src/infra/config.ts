@@ -62,6 +62,26 @@ export const config = {
     secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? '',
   },
 
+  /**
+   * Google Document AI (§4.2.1 — Layer 1 extraction).
+   * Leave projectId blank to use the deterministic stub.
+   */
+  documentAI: {
+    projectId: process.env.GOOGLE_DOCUMENTAI_PROJECT_ID ?? '',
+    location: process.env.GOOGLE_DOCUMENTAI_LOCATION ?? 'us',
+    // General-purpose processor used for every document type by default.
+    // Override per-type processors via the record below if needed.
+    defaultProcessorId: process.env.GOOGLE_DOCUMENTAI_PROCESSOR_ID ?? '',
+    processorIdsByType: {
+      certificate_of_registration: process.env.GOOGLE_DOCUMENTAI_PROCESSOR_COR ?? '',
+      tax_certificate: process.env.GOOGLE_DOCUMENTAI_PROCESSOR_TAX ?? '',
+      director_id: process.env.GOOGLE_DOCUMENTAI_PROCESSOR_ID_DOC ?? '',
+      bank_confirmation: process.env.GOOGLE_DOCUMENTAI_PROCESSOR_BANK ?? '',
+    } as Record<string, string>,
+    credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS ?? '',
+    credentialsJson: process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ?? '',
+  },
+
   email: {
     provider: process.env.EMAIL_PROVIDER ?? 'sendgrid',
     sendgridApiKey: process.env.SENDGRID_API_KEY ?? '',

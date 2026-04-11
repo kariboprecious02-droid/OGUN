@@ -106,10 +106,14 @@ curl -sSL -X POST https://sandbox.ogun.com/v1/merchants/mrc_01KWARA.../submit \
 
 This kicks off Ogun's three-layer compliance pipeline (§4.2):
 
-1. **Extraction** — each uploaded document is sent to a
-   document-AI service (Google Document AI / AWS Textract in prod)
-   that returns structured fields (company name, registration number,
-   tax ID, etc.).
+1. **Extraction** — each uploaded document is sent to **Google
+   Document AI** (when configured) or a deterministic stub (in
+   sandbox / local dev). The production pipeline calls Document AI's
+   Form Parser processor and maps the returned entities to Ogun's
+   canonical field names (`company_name`, `registration_number`,
+   `tax_id`, `id_number`, `bank_name`, `account_number`). See
+   [I. Google Document AI](./09-google-document-ai.md) for the
+   full setup.
 2. **Rules engine** — deterministic checks: mandatory documents
    present, KRA PIN format valid, registration number cross-matches
    the certificate, no expired documents, company name matches.

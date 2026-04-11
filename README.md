@@ -241,7 +241,13 @@ The backend MVP now ships with:
   sections (getting started, onboarding, collections, payouts,
   settlements, webhooks, testing, errors).
 
+- **Google Document AI integration** for Layer 1 compliance extraction
+  (§4.2.1). Adapter pattern with env-gated fallback to the
+  deterministic stub — set `GOOGLE_DOCUMENTAI_PROJECT_ID`,
+  `GOOGLE_DOCUMENTAI_PROCESSOR_ID`, and `GOOGLE_APPLICATION_CREDENTIALS`
+  to flip it on. See [`docs/09-google-document-ai.md`](./docs/09-google-document-ai.md)
+  for the full setup.
+
 Remaining P2 items (not blocking backend MVP acceptance):
-- Real document extraction provider (Google Document AI / Textract)
 - Admin dashboard frontend (Next.js)
 - Live Safaricom Daraja / Paystack credentials in CI
