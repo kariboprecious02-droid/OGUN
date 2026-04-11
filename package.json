@@ -10,7 +10,7 @@
     "migrate": "ts-node -r tsconfig-paths/register src/infra/db/migrate.ts",
     "seed": "ts-node -r tsconfig-paths/register src/infra/db/seed.ts",
     "test": "jest --runInBand",
-    "test:integration": "RUN_INTEGRATION=1 jest --runInBand --testPathPattern='integration'",
+    "test:integration": "RUN_INTEGRATION=1 jest --runInBand --forceExit",
     "test:watch": "jest --watch",
     "lint": "eslint 'src/**/*.ts'",
     "format": "prettier --write 'src/**/*.ts'",

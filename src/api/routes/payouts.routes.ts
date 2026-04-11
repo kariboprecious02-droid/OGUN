@@ -8,8 +8,11 @@ import {
   createPayout,
   getPayout,
   listPayouts,
+  syncPayout,
 } from '@/modules/payout/payout.service';
 import { PayoutStatus } from '@/modules/payout/payout.types';
+import { enforceRateLimit } from '@/infra/rateLimit';
+import { OgunError } from '@/infra/errors';
 
 const router = Router();
 
@@ -153,6 +156,43 @@ router.get('/payouts/:id', authenticate(), async (req, res, next) => {
           reference: p.external_reference,
           created_at: p.created_at,
           final_resolved_at: p.final_resolved_at,
+        },
+        { request_id: req.ogunContext.requestId },
+      ),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Force a provider status query. §12.4.
+ * Rate-limited to 1 call per payout per minute.
+ */
+router.post('/payouts/:id/sync', authenticate(), async (req, res, next) => {
+  try {
+    requireSecretKey(req);
+    const existing = await getPayout(req.params.id);
+    if (existing.merchant_id !== req.ogunContext.principal!.merchantId) {
+      throw OgunError.notFound('Payout', req.params.id);
+    }
+    await enforceRateLimit(`payout_sync:${existing.id}`, 60, 1);
+    const p = await syncPayout(existing.id);
+    res.json(
+      success(
+        {
+          payout_id: p.id,
+          status: p.status,
+          provider_status: p.provider_status,
+          amount: p.amount,
+          fee_amount: p.fee_amount,
+          total_debit: p.total_debit,
+          recipient_amount: p.recipient_amount,
+          fee_model: p.fee_model,
+          provider: p.provider,
+          provider_reference: p.provider_reference,
+          reversal_indicator: p.reversal_indicator,
+          failure_reason: p.failure_reason,
         },
         { request_id: req.ogunContext.requestId },
       ),

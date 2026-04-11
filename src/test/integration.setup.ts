@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { getPool, closePool } from '@/infra/db/pool';
 import { getRedis, closeRedis } from '@/infra/redis';
+import { drainAsync } from '@/infra/asyncTracker';
 
 export const INTEGRATION_ENABLED = process.env.RUN_INTEGRATION === '1';
 
@@ -41,9 +42,12 @@ export async function setupIntegrationSchema(): Promise<void> {
 
 /**
  * Tear down pool + redis handles. Call from `afterAll`.
+ * Drains in-flight fire-and-forget dispatches first so they don't
+ * try to use closed handles.
  */
 export async function teardownIntegration(): Promise<void> {
   if (!INTEGRATION_ENABLED) return;
+  await drainAsync();
   try {
     await getRedis().flushdb();
   } catch {
@@ -55,10 +59,12 @@ export async function teardownIntegration(): Promise<void> {
 
 /**
  * Truncate all data tables and flush Redis. Call from `beforeEach`.
- * Keeps the schema and the migrations tracking table intact.
+ * Drains in-flight fire-and-forget dispatches first so they don't
+ * race with the truncate.
  */
 export async function truncateAllTables(): Promise<void> {
   if (!INTEGRATION_ENABLED) return;
+  await drainAsync();
   const pool = getPool();
   const { rows } = await pool.query<{ tablename: string }>(
     `SELECT tablename FROM pg_tables

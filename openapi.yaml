@@ -321,6 +321,122 @@ paths:
                     properties:
                       data: { $ref: '#/components/schemas/CollectionDetail' }
 
+  /collections/{id}/sync:
+    post:
+      summary: Force a provider status query (rate-limited 1/min per collection)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Refreshed detail
+          content: { application/json: { schema: { $ref: '#/components/schemas/SuccessEnvelope' } } }
+        '429':
+          description: Rate limited (1 call per collection per minute)
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+
+  /payouts/{id}/sync:
+    post:
+      summary: Force a provider status query for a payout (rate-limited 1/min)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Refreshed detail
+          content: { application/json: { schema: { $ref: '#/components/schemas/SuccessEnvelope' } } }
+        '429':
+          description: Rate limited
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+
+  /beneficiaries:
+    post:
+      summary: Create a beneficiary (optionally resolves Paystack recipient)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [merchant_id, sub_merchant_id, name, beneficiary_type]
+              properties:
+                merchant_id: { type: string, pattern: '^mrc_' }
+                sub_merchant_id: { type: string, pattern: '^smrc_' }
+                name: { type: string }
+                beneficiary_type:
+                  type: string
+                  enum: [mobile_money, bank_account]
+                mobile_number: { type: string }
+                bank_code: { type: string }
+                account_number: { type: string }
+                currency: { type: string, default: KES }
+                provider:
+                  type: string
+                  enum: [paystack, demo]
+      responses:
+        '201':
+          description: Beneficiary created
+          content: { application/json: { schema: { $ref: '#/components/schemas/SuccessEnvelope' } } }
+    get:
+      summary: List beneficiaries for the authenticated merchant
+      parameters:
+        - in: query
+          name: sub_merchant_id
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50 }
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { $ref: '#/components/schemas/SuccessEnvelope' } } }
+
+  /beneficiaries/{id}:
+    get:
+      summary: Get a beneficiary
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { $ref: '#/components/schemas/SuccessEnvelope' } } }
+        '404':
+          description: Not found (including ownership isolation)
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+    patch:
+      summary: Update a beneficiary
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content: { application/json: { schema: { $ref: '#/components/schemas/SuccessEnvelope' } } }
+    delete:
+      summary: Delete a beneficiary
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204':
+          description: Deleted
+
   /payouts:
     post:
       summary: Create a payout (API-first; reserves total_debit synchronously)

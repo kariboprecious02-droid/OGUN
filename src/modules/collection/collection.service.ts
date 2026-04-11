@@ -46,6 +46,7 @@ import { postLedgerEntry } from '@/modules/wallet/ledger';
 import { LedgerTxType } from '@/modules/wallet/wallet.types';
 import { enqueuePollingJob } from '@/modules/polling/polling.service';
 import { emitEvent } from '@/modules/webhook/webhook.service';
+import { trackAsync } from '@/infra/asyncTracker';
 
 export type CreateCollectionInput = {
   merchant_id: string;
@@ -114,8 +115,11 @@ export async function createCollection(
 
   // Dispatch to provider asynchronously (but in-line for MVP simplicity).
   // Production: this is offloaded to a BullMQ job via the outbox pattern.
-  void dispatchToProvider(row.id).catch((err) =>
-    logger.error({ err, collection_id: row.id }, 'provider dispatch failed'),
+  // Tests can await drainAsync() to wait for all in-flight dispatches.
+  trackAsync(
+    dispatchToProvider(row.id).catch((err) => {
+      logger.error({ err, collection_id: row.id }, 'provider dispatch failed');
+    }),
   );
 
   await emitEvent({
@@ -427,6 +431,39 @@ export async function getCollection(id: string): Promise<CollectionRow> {
 
 export async function listCollections(params: Parameters<typeof listCollectionsRepo>[0]) {
   return listCollectionsRepo(params);
+}
+
+/**
+ * Force a provider status query (§12.3). Rate-limited at the route layer
+ * (1 call per collection per minute).  If the collection is already
+ * terminal, returns the current row without calling the provider.
+ * Otherwise calls the connector and, if the result is conclusive,
+ * resolves the collection through the same idempotent terminal handler
+ * the webhook + poller use.
+ */
+export async function syncCollection(id: string): Promise<CollectionRow> {
+  const row = await getCollection(id);
+  if (isTerminal(row.internal_status)) return row;
+  if (!row.provider_reference) return row;
+
+  const connector = getCollectionConnector(row.provider);
+  const result = await connector.getCollectionStatus(row.provider_reference);
+
+  if (result.normalized_status === 'succeeded') {
+    await resolveCollection(row.id, {
+      source: 'api',
+      normalizedStatus: 'succeeded',
+      providerReference: result.provider_reference,
+    });
+  } else if (result.normalized_status === 'failed') {
+    await resolveCollection(row.id, {
+      source: 'api',
+      normalizedStatus: 'failed',
+      providerReference: result.provider_reference,
+      failureReason: result.error_code ?? 'sync_reported_failure',
+    });
+  }
+  return getCollection(id);
 }
 
 export { findCollectionByProviderRef };

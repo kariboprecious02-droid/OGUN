@@ -8,8 +8,11 @@ import {
   createCollection,
   getCollection,
   listCollections,
+  syncCollection,
 } from '@/modules/collection/collection.service';
 import { CollectionBusinessStatus } from '@/modules/collection/collection.types';
+import { enforceRateLimit } from '@/infra/rateLimit';
+import { OgunError } from '@/infra/errors';
 
 const router = Router();
 
@@ -141,6 +144,45 @@ router.get('/collections/:id', authenticate(), async (req, res, next) => {
           metadata: c.metadata,
           created_at: c.created_at,
           final_resolved_at: c.final_resolved_at,
+        },
+        { request_id: req.ogunContext.requestId },
+      ),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Force a provider status query. §12.3.
+ * Rate-limited to 1 call per collection per minute.
+ */
+router.post('/collections/:id/sync', authenticate(), async (req, res, next) => {
+  try {
+    requireSecretKey(req);
+    // Verify ownership first (and 404 if missing)
+    const existing = await getCollection(req.params.id);
+    if (existing.merchant_id !== req.ogunContext.principal!.merchantId) {
+      throw OgunError.notFound('Collection', req.params.id);
+    }
+    await enforceRateLimit(`collection_sync:${existing.id}`, 60, 1);
+    const c = await syncCollection(existing.id);
+    res.json(
+      success(
+        {
+          id: c.id,
+          business_status: c.business_status,
+          internal_status: c.internal_status,
+          status_reason: c.status_reason,
+          amount: c.amount,
+          fee_amount: c.fee_amount,
+          currency: c.currency,
+          method: c.method,
+          provider: c.provider,
+          provider_reference: c.provider_reference,
+          settlement_eligible: c.settlement_eligible,
+          wallet_credited: c.wallet_credited,
+          refund_status: c.refund_status,
         },
         { request_id: req.ogunContext.requestId },
       ),

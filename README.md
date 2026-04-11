@@ -152,9 +152,16 @@ Human reviewers always have the final word via
 | POST | `/v1/collections` | Create collection (async; poll + webhook backed) |
 | GET  | `/v1/collections` | List (business_status only) |
 | GET  | `/v1/collections/:id` | Detail (business_status **+** internal_status) |
+| POST | `/v1/collections/:id/sync` | Force provider status check (1/min rate limit) |
 | POST | `/v1/payouts` | Create payout (reservation + Paystack dispatch) |
 | GET  | `/v1/payouts` | List (status only) |
 | GET  | `/v1/payouts/:id` | Detail (status **+** provider_status) |
+| POST | `/v1/payouts/:id/sync` | Force provider status check (1/min rate limit) |
+| POST | `/v1/beneficiaries` | Create a beneficiary (+ optional Paystack recipient) |
+| GET  | `/v1/beneficiaries` | List beneficiaries for the merchant |
+| GET  | `/v1/beneficiaries/:id` | Get beneficiary detail |
+| PATCH| `/v1/beneficiaries/:id` | Update beneficiary |
+| DELETE| `/v1/beneficiaries/:id` | Delete beneficiary |
 | POST | `/v1/wallets/payout/topups` | Fund payout wallet |
 | GET  | `/v1/wallets` | Balances |
 | POST | `/v1/settlements` | On-demand settlement for a sub-merchant |

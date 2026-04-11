@@ -47,6 +47,7 @@ import {
 } from './beneficiary.repository';
 import { emitEvent } from '@/modules/webhook/webhook.service';
 import { enqueuePollingJob } from '@/modules/polling/polling.service';
+import { trackAsync } from '@/infra/asyncTracker';
 
 export type CreatePayoutInput = {
   merchant_id: string;
@@ -198,8 +199,10 @@ export async function createPayout(input: CreatePayoutInput): Promise<CreatePayo
     },
   });
 
-  void dispatchPayout(payoutRow.id, beneficiary).catch((err) =>
-    logger.error({ err, payout_id: payoutRow.id }, 'payout dispatch failed'),
+  trackAsync(
+    dispatchPayout(payoutRow.id, beneficiary).catch((err) => {
+      logger.error({ err, payout_id: payoutRow.id }, 'payout dispatch failed');
+    }),
   );
 
   return { payout: payoutRow };
@@ -434,6 +437,45 @@ export async function getPayout(id: string): Promise<PayoutRow> {
 
 export async function listPayouts(params: Parameters<typeof listPayoutsRepo>[0]) {
   return listPayoutsRepo(params);
+}
+
+/**
+ * Force a provider status query for a payout (§12.4). Rate-limited at
+ * the route layer. Idempotent: if the payout is already terminal, we
+ * return the current row without calling the provider. If the
+ * connector reports a conclusive status, we route through the same
+ * terminal-state handler the webhook + poller use.
+ */
+export async function syncPayout(id: string): Promise<PayoutRow> {
+  const row = await getPayout(id);
+  if (isPayoutTerminal(row.status)) return row;
+  if (!row.provider_reference) return row;
+
+  const connector = getPayoutConnector(row.provider);
+  const result = await connector.getPayoutStatus(row.provider_reference);
+
+  if (result.normalized_status === 'succeeded') {
+    await resolvePayout(row.id, {
+      source: 'api',
+      normalizedStatus: 'succeeded',
+      providerReference: result.provider_reference,
+    });
+  } else if (result.normalized_status === 'failed') {
+    await resolvePayout(row.id, {
+      source: 'api',
+      normalizedStatus: 'failed',
+      providerReference: result.provider_reference,
+      failureReason: result.error_code ?? 'sync_reported_failure',
+    });
+  } else if (result.normalized_status === 'reversed') {
+    await resolvePayout(row.id, {
+      source: 'api',
+      normalizedStatus: 'reversed',
+      providerReference: result.provider_reference,
+      reversalReason: result.error_code ?? 'provider_reversed',
+    });
+  }
+  return getPayout(id);
 }
 
 export { findPayoutByProviderRef };

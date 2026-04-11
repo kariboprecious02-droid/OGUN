@@ -6,6 +6,7 @@ import { errorHandler } from './middleware/errorHandler';
 import merchantsRoutes from './routes/merchants.routes';
 import collectionsRoutes from './routes/collections.routes';
 import payoutsRoutes from './routes/payouts.routes';
+import beneficiariesRoutes from './routes/beneficiaries.routes';
 import walletsRoutes from './routes/wallets.routes';
 import settlementsRoutes from './routes/settlements.routes';
 import adminRoutes from './routes/admin.routes';
@@ -50,6 +51,7 @@ export function createApp(): express.Express {
   app.use('/v1', merchantsRoutes);
   app.use('/v1', collectionsRoutes);
   app.use('/v1', payoutsRoutes);
+  app.use('/v1', beneficiariesRoutes);
   app.use('/v1', walletsRoutes);
   app.use('/v1', settlementsRoutes);
   app.use('/v1', adminRoutes);
