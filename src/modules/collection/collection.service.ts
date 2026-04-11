@@ -159,13 +159,12 @@ async function dispatchToProvider(collectionId: string): Promise<void> {
     const locked = await lockCollection(client, row.id);
     if (isTerminal(locked.internal_status)) return;
 
+    // Dispatch NEVER writes a terminal status directly — terminal state
+    // flows exclusively through resolveCollection so the wallet-crediting
+    // path is the single source of truth. Here we only record that the
+    // provider accepted (or visibly rejected) the submission.
     const nextInternal: CollectionInternalStatusValue =
-      result.normalized_status === 'succeeded'
-        ? CollectionInternalStatus.Succeeded
-        : result.normalized_status === 'failed'
-        ? CollectionInternalStatus.Failed
-        : CollectionInternalStatus.PendingCustomerAction;
-
+      CollectionInternalStatus.PendingCustomerAction;
     const nextBusiness = toBusinessStatus(nextInternal);
     const submissionAt = new Date();
 
@@ -278,9 +277,14 @@ export async function resolveCollection(
         fee_amount: number;
       };
       const feeModel = snapshot.model;
-      const walletCredit = snapshot.wallet_credit;
       const feeAmount = snapshot.fee_amount;
 
+      // In BOTH fee models the collection_credit entry records the full
+      // principal `row.amount`. For merchant_covers we then post a
+      // separate collection_fee_debit so the wallet nets to (amount - fee).
+      // For payer_covers, the customer already paid (amount + fee) — the
+      // platform's fee is not in the merchant wallet at all, so we skip
+      // the debit entirely.
       await postLedgerEntry(client, {
         merchantId: row.merchant_id,
         subMerchantId: row.sub_merchant_id,
@@ -288,7 +292,7 @@ export async function resolveCollection(
         walletType: 'collection',
         transactionType: LedgerTxType.CollectionCredit,
         direction: 'credit',
-        amount: feeModel === 'payer_covers' ? row.amount : walletCredit,
+        amount: row.amount,
         currency: row.currency,
         referenceType: 'collection',
         referenceId: row.id,

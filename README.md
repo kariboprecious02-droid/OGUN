@@ -62,15 +62,36 @@ npm install
 cp .env.example .env
 #    (edit DATABASE_URL, REDIS_URL, SAFARICOM_*, PAYSTACK_*)
 
-# 3. Migrate
+# 3a. Bring up the full local stack (Postgres + Redis + migrate + seed)
+./bin/dev-up.sh
+#    (requires Docker; uses docker-compose.yml)
+
+# 3b. OR run against your own Postgres / Redis
 npm run migrate
+npm run seed     # creates the Kwara Kenya anchor merchant, prints sandbox keys
 
-# 4. Run tests (no external deps needed)
-npm test
-
-# 5. Start the server + background workers
+# 4. Start the server + background workers
 npm run dev
 ```
+
+## Tests
+
+Two modes:
+
+```bash
+# Unit tests — no external dependencies, run anywhere
+npm test
+
+# Unit + integration — requires a running Postgres + Redis
+DATABASE_URL=postgres://ogun:ogun@localhost:5432/ogun_test \
+REDIS_URL=redis://localhost:6379/1 \
+npm run test:integration
+```
+
+Integration suites (`*.integration.test.ts`) exercise the orchestrators
+end-to-end against real services, including the §3.5 wallet invariant,
+the dual-state collection model, and the payout reservation flow.
+They're skipped automatically when `RUN_INTEGRATION` is not set.
 
 ## Critical architecture invariants
 

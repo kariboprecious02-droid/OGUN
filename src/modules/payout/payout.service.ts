@@ -231,11 +231,15 @@ async function dispatchPayout(payoutId: string, beneficiary: BeneficiaryRow): Pr
     const locked = await lockPayout(client, row.id);
     if (isPayoutTerminal(locked.status)) return;
 
-    let nextStatus: PayoutStatusValue = PayoutStatus.Processing;
-    if (result.normalized_status === 'succeeded') nextStatus = PayoutStatus.Succeeded;
-    else if (result.normalized_status === 'failed') nextStatus = PayoutStatus.Failed;
-    else if (result.normalized_status === 'pending_approval') nextStatus = PayoutStatus.PendingApproval;
-    else nextStatus = PayoutStatus.Processing;
+    // Dispatch NEVER writes a terminal status — terminal flows
+    // exclusively through resolvePayout so the reserve→finalize /
+    // reserve→release ledger logic is the single source of truth.
+    // Map the connector's normalized signal to a non-terminal state
+    // here; the subsequent resolvePayout call below does the real work.
+    const nextStatus: PayoutStatusValue =
+      result.normalized_status === 'pending_approval'
+        ? PayoutStatus.PendingApproval
+        : PayoutStatus.Processing;
 
     await updatePayout(client, row.id, {
       status: nextStatus,
