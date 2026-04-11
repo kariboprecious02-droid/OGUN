@@ -5,13 +5,14 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
-import { parseBody } from '@/api/validation';
-import { success } from '@/infra/response';
+import { parseBody, parseQuery, pagination, resolvePagination } from '@/api/validation';
+import { success, paginated } from '@/infra/response';
 import { OgunError } from '@/infra/errors';
 import { submitManualDecision } from '@/modules/compliance/compliance.service';
-import { activateMerchant, suspendMerchant } from '@/modules/merchant/merchant.service';
+import { activateMerchant, suspendMerchant, getMerchant } from '@/modules/merchant/merchant.service';
 import { issueCredentials } from '@/modules/auth/auth.service';
 import { config } from '@/infra/config';
+import { query } from '@/infra/db/pool';
 
 const router = Router();
 
@@ -86,6 +87,440 @@ router.post('/admin/merchants/:merchantId/suspend', async (req, res, next) => {
     const body = parseBody(suspendBody, req.body);
     const updated = await suspendMerchant(req.params.merchantId, body.reason);
     res.json(success({ id: updated.id, status: updated.status }, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ---------- READ endpoints for the admin dashboard ---------- */
+
+/**
+ * GET /v1/admin/merchants — paginated list, optionally filtered by
+ * status. Used for the compliance review queue.
+ */
+const listMerchantsQuery = pagination.extend({
+  status: z
+    .enum([
+      'draft',
+      'submitted',
+      'under_ai_review',
+      'under_manual_review',
+      'changes_requested',
+      'approved',
+      'rejected',
+      'credentials_issued',
+      'active',
+      'suspended',
+    ])
+    .optional(),
+  search: z.string().max(100).optional(),
+});
+
+router.get('/admin/merchants', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const parsed = parseQuery(listMerchantsQuery, req.query);
+    const { page, limit } = resolvePagination(parsed);
+    const where: string[] = [];
+    const vals: unknown[] = [];
+    let i = 1;
+    if (parsed.status) {
+      where.push(`status = $${i++}`);
+      vals.push(parsed.status);
+    }
+    if (parsed.search) {
+      where.push(`(legal_name ILIKE $${i} OR trading_name ILIKE $${i} OR id = $${i + 1})`);
+      vals.push(`%${parsed.search}%`);
+      vals.push(parsed.search);
+      i += 2;
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const offset = (page - 1) * limit;
+    const [{ rows: items }, { rows: totals }] = await Promise.all([
+      query<{
+        id: string;
+        legal_name: string;
+        trading_name: string;
+        status: string;
+        country: string;
+        created_at: Date;
+        updated_at: Date;
+      }>(
+        `SELECT id, legal_name, trading_name, status, country, created_at, updated_at
+           FROM merchants ${whereSql}
+          ORDER BY updated_at DESC
+          LIMIT $${i++} OFFSET $${i++}`,
+        [...vals, limit, offset],
+      ),
+      query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM merchants ${whereSql}`,
+        vals,
+      ),
+    ]);
+    res.json(
+      paginated(items, page, limit, Number(totals[0]?.count ?? 0), req.ogunContext.requestId),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /v1/admin/merchants/:id — full merchant profile with documents,
+ * rule results, AI review, sub-merchants, and settings.  Powers the
+ * compliance review detail screen.
+ */
+router.get('/admin/merchants/:id', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const merchant = await getMerchant(req.params.id);
+    const [docs, rules, reviews, subs] = await Promise.all([
+      query<{
+        id: string;
+        type: string;
+        file_url: string;
+        file_hash: string | null;
+        extracted_data: Record<string, unknown> | null;
+        extraction_confidence: number | null;
+        review_status: string;
+        uploaded_at: Date;
+      }>(
+        `SELECT id, type, file_url, file_hash, extracted_data,
+                extraction_confidence, review_status, uploaded_at
+           FROM documents WHERE merchant_id = $1
+           ORDER BY uploaded_at DESC`,
+        [merchant.id],
+      ),
+      query<{
+        id: string;
+        rule_name: string;
+        passed: boolean;
+        details: Record<string, unknown>;
+        created_at: Date;
+      }>(
+        `SELECT id, rule_name, passed, details, created_at
+           FROM compliance_rule_results WHERE merchant_id = $1
+           ORDER BY created_at DESC`,
+        [merchant.id],
+      ),
+      query<{
+        id: string;
+        reviewer_type: string;
+        decision: string;
+        notes: string | null;
+        confidence_score: number | null;
+        flags_raised: unknown;
+        explanation_summary: string | null;
+        model_identifier: string | null;
+        actor_id: string | null;
+        previous_status: string | null;
+        new_status: string | null;
+        created_at: Date;
+      }>(
+        `SELECT id, reviewer_type, decision, notes, confidence_score,
+                flags_raised, explanation_summary, model_identifier,
+                actor_id, previous_status, new_status, created_at
+           FROM compliance_reviews WHERE merchant_id = $1
+           ORDER BY created_at DESC`,
+        [merchant.id],
+      ),
+      query<{
+        id: string;
+        name: string;
+        code: string | null;
+        status: string;
+        settlement_preference: string | null;
+      }>(
+        `SELECT id, name, code, status, settlement_preference
+           FROM sub_merchants WHERE merchant_id = $1
+           ORDER BY created_at ASC`,
+        [merchant.id],
+      ),
+    ]);
+    res.json(
+      success(
+        {
+          merchant,
+          sub_merchants: subs.rows,
+          documents: docs.rows,
+          rule_results: rules.rows,
+          reviews: reviews.rows,
+        },
+        { request_id: req.ogunContext.requestId },
+      ),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /v1/admin/wallets — cross-merchant wallet inspector.
+ */
+const listWalletsQuery = pagination.extend({
+  merchant_id: z.string().startsWith('mrc_').optional(),
+  sub_merchant_id: z.string().startsWith('smrc_').optional(),
+  wallet_type: z.enum(['collection', 'payout']).optional(),
+});
+
+router.get('/admin/wallets', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const parsed = parseQuery(listWalletsQuery, req.query);
+    const { page, limit } = resolvePagination(parsed);
+    const where: string[] = [];
+    const vals: unknown[] = [];
+    let i = 1;
+    if (parsed.merchant_id) {
+      where.push(`w.merchant_id = $${i++}`);
+      vals.push(parsed.merchant_id);
+    }
+    if (parsed.sub_merchant_id) {
+      where.push(`w.sub_merchant_id = $${i++}`);
+      vals.push(parsed.sub_merchant_id);
+    }
+    if (parsed.wallet_type) {
+      where.push(`w.wallet_type = $${i++}`);
+      vals.push(parsed.wallet_type);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const offset = (page - 1) * limit;
+    const [{ rows: items }, { rows: totals }] = await Promise.all([
+      query<{
+        id: string;
+        merchant_id: string;
+        sub_merchant_id: string;
+        wallet_type: string;
+        currency: string;
+        available_balance: string;
+        reserved_balance: string;
+        status: string;
+        sub_merchant_name: string;
+        merchant_legal_name: string;
+      }>(
+        `SELECT w.id, w.merchant_id, w.sub_merchant_id, w.wallet_type, w.currency,
+                w.available_balance, w.reserved_balance, w.status,
+                sm.name AS sub_merchant_name,
+                m.legal_name AS merchant_legal_name
+           FROM wallets w
+           JOIN sub_merchants sm ON sm.id = w.sub_merchant_id
+           JOIN merchants m ON m.id = w.merchant_id
+           ${whereSql}
+          ORDER BY m.legal_name, sm.name, w.wallet_type
+          LIMIT $${i++} OFFSET $${i++}`,
+        [...vals, limit, offset],
+      ),
+      query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM wallets w ${whereSql}`,
+        vals,
+      ),
+    ]);
+    const normalized = items.map((w) => ({
+      ...w,
+      available_balance: Number(w.available_balance),
+      reserved_balance: Number(w.reserved_balance),
+    }));
+    res.json(
+      paginated(normalized, page, limit, Number(totals[0]?.count ?? 0), req.ogunContext.requestId),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /v1/admin/wallets/:id/ledger — paginated ledger entries for a
+ * specific wallet.  Reference link for investigating drift.
+ */
+router.get('/admin/wallets/:id/ledger', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const { page, limit } = resolvePagination(parseQuery(pagination, req.query));
+    const offset = (page - 1) * limit;
+    const [{ rows: items }, { rows: totals }] = await Promise.all([
+      query<{
+        id: string;
+        transaction_type: string;
+        direction: string;
+        amount: string;
+        currency: string;
+        reference_type: string;
+        reference_id: string;
+        description: string | null;
+        created_at: Date;
+      }>(
+        `SELECT id, transaction_type, direction, amount, currency,
+                reference_type, reference_id, description, created_at
+           FROM ledger_entries
+          WHERE wallet_id = $1
+          ORDER BY created_at DESC
+          LIMIT $2 OFFSET $3`,
+        [req.params.id, limit, offset],
+      ),
+      query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM ledger_entries WHERE wallet_id = $1`,
+        [req.params.id],
+      ),
+    ]);
+    const normalized = items.map((e) => ({ ...e, amount: Number(e.amount) }));
+    res.json(
+      paginated(normalized, page, limit, Number(totals[0]?.count ?? 0), req.ogunContext.requestId),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /v1/admin/collections — cross-merchant transaction inspector.
+ */
+const listCollectionsQuery = pagination.extend({
+  merchant_id: z.string().startsWith('mrc_').optional(),
+  sub_merchant_id: z.string().startsWith('smrc_').optional(),
+  business_status: z.enum(['pending', 'successful', 'failed', 'refunded']).optional(),
+});
+
+router.get('/admin/collections', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const parsed = parseQuery(listCollectionsQuery, req.query);
+    const { page, limit } = resolvePagination(parsed);
+    const where: string[] = [];
+    const vals: unknown[] = [];
+    let i = 1;
+    if (parsed.merchant_id) {
+      where.push(`merchant_id = $${i++}`);
+      vals.push(parsed.merchant_id);
+    }
+    if (parsed.sub_merchant_id) {
+      where.push(`sub_merchant_id = $${i++}`);
+      vals.push(parsed.sub_merchant_id);
+    }
+    if (parsed.business_status) {
+      where.push(`business_status = $${i++}`);
+      vals.push(parsed.business_status);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const offset = (page - 1) * limit;
+    const [{ rows: items }, { rows: totals }] = await Promise.all([
+      query(
+        `SELECT id, merchant_id, sub_merchant_id, amount, fee_amount, currency,
+                method, provider, business_status, internal_status, status_reason,
+                customer_phone, merchant_reference, settlement_eligible,
+                wallet_credited, refund_status, created_at, final_resolved_at
+           FROM collections ${whereSql}
+          ORDER BY created_at DESC
+          LIMIT $${i++} OFFSET $${i++}`,
+        [...vals, limit, offset],
+      ),
+      query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM collections ${whereSql}`,
+        vals,
+      ),
+    ]);
+    const normalized = items.map((c: Record<string, unknown>) => ({
+      ...c,
+      amount: Number(c.amount),
+      fee_amount: Number(c.fee_amount),
+    }));
+    res.json(
+      paginated(normalized, page, limit, Number(totals[0]?.count ?? 0), req.ogunContext.requestId),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /v1/admin/payouts — cross-merchant payout inspector.
+ */
+const listPayoutsQuery = pagination.extend({
+  merchant_id: z.string().startsWith('mrc_').optional(),
+  sub_merchant_id: z.string().startsWith('smrc_').optional(),
+  status: z
+    .enum([
+      'created',
+      'queued',
+      'processing',
+      'pending_approval',
+      'pending_confirmation',
+      'succeeded',
+      'failed',
+      'reversed',
+      'cancelled',
+    ])
+    .optional(),
+});
+
+router.get('/admin/payouts', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const parsed = parseQuery(listPayoutsQuery, req.query);
+    const { page, limit } = resolvePagination(parsed);
+    const where: string[] = [];
+    const vals: unknown[] = [];
+    let i = 1;
+    if (parsed.merchant_id) {
+      where.push(`merchant_id = $${i++}`);
+      vals.push(parsed.merchant_id);
+    }
+    if (parsed.sub_merchant_id) {
+      where.push(`sub_merchant_id = $${i++}`);
+      vals.push(parsed.sub_merchant_id);
+    }
+    if (parsed.status) {
+      where.push(`status = $${i++}`);
+      vals.push(parsed.status);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const offset = (page - 1) * limit;
+    const [{ rows: items }, { rows: totals }] = await Promise.all([
+      query(
+        `SELECT id, merchant_id, sub_merchant_id, amount, fee_amount, total_debit,
+                recipient_amount, fee_model, currency, method, provider, status,
+                provider_reference, provider_status, failure_reason, reversal_indicator,
+                created_at, final_resolved_at
+           FROM payouts ${whereSql}
+          ORDER BY created_at DESC
+          LIMIT $${i++} OFFSET $${i++}`,
+        [...vals, limit, offset],
+      ),
+      query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM payouts ${whereSql}`,
+        vals,
+      ),
+    ]);
+    const normalized = items.map((p: Record<string, unknown>) => ({
+      ...p,
+      amount: Number(p.amount),
+      fee_amount: Number(p.fee_amount),
+      total_debit: Number(p.total_debit),
+      recipient_amount: Number(p.recipient_amount),
+    }));
+    res.json(
+      paginated(normalized, page, limit, Number(totals[0]?.count ?? 0), req.ogunContext.requestId),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /v1/admin/session — admin login that exchanges the admin secret
+ * for a confirmation. The Next.js dashboard stores the secret in a
+ * httpOnly cookie so subsequent requests can include it server-side.
+ * This endpoint simply validates the secret and echoes the admin's
+ * context back to the client.
+ */
+router.post('/admin/session', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    res.json(
+      success(
+        { authenticated: true, verified_at: new Date().toISOString() },
+        { request_id: req.ogunContext.requestId },
+      ),
+    );
   } catch (err) {
     next(err);
   }

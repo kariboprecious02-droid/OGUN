@@ -11,3 +11,9 @@ coverage/
 .idea/
 tmp/
 .ogun-storage/
+
+# Next.js admin app
+apps/admin/.next/
+apps/admin/node_modules/
+apps/admin/out/
+apps/admin/tsconfig.tsbuildinfo

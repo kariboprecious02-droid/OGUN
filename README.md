@@ -248,6 +248,21 @@ The backend MVP now ships with:
   to flip it on. See [`docs/09-google-document-ai.md`](./docs/09-google-document-ai.md)
   for the full setup.
 
+- **Admin dashboard** — Next.js 14 app at `apps/admin/` with
+  server-component-only pages, cookie-based admin auth, compliance
+  review queue + detail screen with AI recommendation and
+  approve/request-changes/reject form, merchant activation flow,
+  wallet inspector with ledger drill-down, and dual-state collection +
+  payout browsers. The admin secret stays in an httpOnly cookie and
+  never reaches the browser.
+
+  ```bash
+  cd apps/admin
+  npm install
+  OGUN_API_BASE_URL=http://localhost:4000/v1 npm run dev
+  # Dashboard at http://localhost:4001 — log in with the value of
+  # OGUN_WEBHOOK_SIGNING_SALT from your Ogun backend env.
+  ```
+
 Remaining P2 items (not blocking backend MVP acceptance):
-- Admin dashboard frontend (Next.js)
 - Live Safaricom Daraja / Paystack credentials in CI

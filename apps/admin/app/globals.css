@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    @apply bg-ogun-bg text-ogun-text font-sans;
+    min-height: 100vh;
+  }
+  a {
+    @apply text-ogun-accent hover:underline;
+  }
+  code,
+  .mono {
+    @apply font-mono text-[13px] text-ogun-muted;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply bg-ogun-surface border border-ogun-border rounded-md;
+  }
+  .panel-padded {
+    @apply bg-ogun-surface border border-ogun-border rounded-md p-5;
+  }
+  .btn {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-md border border-ogun-border bg-ogun-surface hover:border-ogun-accent transition;
+  }
+  .btn-primary {
+    @apply bg-ogun-accent text-white border-transparent hover:brightness-110;
+  }
+  .btn-danger {
+    @apply bg-ogun-danger text-white border-transparent hover:brightness-110;
+  }
+  .btn-warn {
+    @apply bg-ogun-warn text-black border-transparent hover:brightness-110;
+  }
+  .table-default {
+    @apply w-full text-sm;
+  }
+  .table-default th {
+    @apply text-left text-ogun-muted font-medium px-3 py-2 border-b border-ogun-border;
+  }
+  .table-default td {
+    @apply px-3 py-2 border-b border-ogun-border align-top;
+  }
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium uppercase tracking-wide;
+  }
+  .badge-pending {
+    @apply bg-ogun-warn/20 text-ogun-warn;
+  }
+  .badge-successful {
+    @apply bg-ogun-success/20 text-ogun-success;
+  }
+  .badge-failed,
+  .badge-refunded,
+  .badge-rejected,
+  .badge-suspended {
+    @apply bg-ogun-danger/20 text-ogun-danger;
+  }
+  .badge-draft,
+  .badge-submitted,
+  .badge-under_ai_review,
+  .badge-under_manual_review,
+  .badge-changes_requested {
+    @apply bg-ogun-accent/20 text-ogun-accent;
+  }
+  .badge-approved,
+  .badge-credentials_issued,
+  .badge-active,
+  .badge-succeeded {
+    @apply bg-ogun-success/20 text-ogun-success;
+  }
+  .kv {
+    @apply grid grid-cols-[140px_1fr] gap-x-4 gap-y-1 text-sm;
+  }
+  .kv dt {
+    @apply text-ogun-muted;
+  }
+  .kv dd {
+    @apply font-mono text-[13px];
+  }
+}
