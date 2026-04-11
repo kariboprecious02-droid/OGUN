@@ -122,3 +122,80 @@ export async function activateSubMerchant(client: PoolClient, id: string): Promi
 export async function withMerchantTx<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
   return withTransaction(fn);
 }
+
+const MERCHANT_UPDATABLE_COLUMNS = [
+  'legal_name',
+  'trading_name',
+  'registration_number',
+  'tax_id',
+  'business_category',
+  'business_address',
+  'website_url',
+  'expected_monthly_volume',
+  'expected_avg_ticket',
+  'contact_name',
+  'contact_email',
+  'contact_phone',
+] as const;
+
+export async function patchMerchant(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<MerchantRow | null> {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  let i = 2;
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue;
+    if (!(MERCHANT_UPDATABLE_COLUMNS as readonly string[]).includes(k)) continue;
+    sets.push(`${k} = $${i++}`);
+    vals.push(k === 'business_address' && v !== null ? JSON.stringify(v) : v);
+  }
+  if (!sets.length) {
+    const { rows } = await query<MerchantRow>(`SELECT * FROM merchants WHERE id = $1`, [id]);
+    return rows[0] ?? null;
+  }
+  sets.push('updated_at = now()');
+  const { rows } = await query<MerchantRow>(
+    `UPDATE merchants SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+    [id, ...vals],
+  );
+  return rows[0] ?? null;
+}
+
+const SUB_MERCHANT_UPDATABLE_COLUMNS = [
+  'name',
+  'code',
+  'settlement_preference',
+  'settlement_destination',
+  'contact_name',
+  'contact_email',
+  'contact_phone',
+] as const;
+
+export async function patchSubMerchant(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<SubMerchantRow | null> {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  let i = 2;
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue;
+    if (!(SUB_MERCHANT_UPDATABLE_COLUMNS as readonly string[]).includes(k)) continue;
+    sets.push(`${k} = $${i++}`);
+    vals.push(
+      k === 'settlement_destination' && v !== null ? JSON.stringify(v) : v,
+    );
+  }
+  if (!sets.length) {
+    const { rows } = await query<SubMerchantRow>(`SELECT * FROM sub_merchants WHERE id = $1`, [id]);
+    return rows[0] ?? null;
+  }
+  sets.push('updated_at = now()');
+  const { rows } = await query<SubMerchantRow>(
+    `UPDATE sub_merchants SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+    [id, ...vals],
+  );
+  return rows[0] ?? null;
+}

@@ -145,7 +145,16 @@ Human reviewers always have the final word via
 | Method | Endpoint | Notes |
 | --- | --- | --- |
 | POST | `/v1/merchants` | Create merchant (draft) |
+| PATCH| `/v1/merchants/:id` | Update whitelisted profile fields |
+| GET  | `/v1/merchants/:id/settings` | Effective fee + method settings |
+| PATCH| `/v1/merchants/:id/settings` | Merchant-level settings override |
+| POST | `/v1/merchants/:id/api-keys/rotate` | Rotate the secret key |
+| POST | `/v1/merchants/:id/webhook-secret/rotate` | Rotate the webhook secret |
+| POST | `/v1/merchants/:id/documents` | Multipart upload (certificate of reg, KRA, ID, etc.) |
+| GET  | `/v1/merchants/:id/documents` | List uploaded documents |
 | POST | `/v1/sub-merchants` | Create sub-merchant |
+| PATCH| `/v1/sub-merchants/:id` | Update sub-merchant profile |
+| PATCH| `/v1/sub-merchants/:id/settings` | Sub-merchant settings override |
 | POST | `/v1/merchants/:id/submit` | Submit for compliance pipeline |
 | POST | `/v1/admin/compliance-reviews/:id` | Human decision |
 | POST | `/v1/admin/merchants/:id/activate` | Issue credentials + create wallets |
@@ -153,6 +162,7 @@ Human reviewers always have the final word via
 | GET  | `/v1/collections` | List (business_status only) |
 | GET  | `/v1/collections/:id` | Detail (business_status **+** internal_status) |
 | POST | `/v1/collections/:id/sync` | Force provider status check (1/min rate limit) |
+| POST | `/v1/collections/:id/refund` | Full or partial refund with settlement adjustment |
 | POST | `/v1/payouts` | Create payout (reservation + Paystack dispatch) |
 | GET  | `/v1/payouts` | List (status only) |
 | GET  | `/v1/payouts/:id` | Detail (status **+** provider_status) |
@@ -164,6 +174,12 @@ Human reviewers always have the final word via
 | DELETE| `/v1/beneficiaries/:id` | Delete beneficiary |
 | POST | `/v1/wallets/payout/topups` | Fund payout wallet |
 | GET  | `/v1/wallets` | Balances |
+| POST | `/v1/webhook-endpoints` | Register a webhook URL (returns secret once) |
+| GET  | `/v1/webhook-endpoints` | List registered endpoints |
+| GET  | `/v1/webhook-endpoints/:id` | Endpoint detail |
+| PUT  | `/v1/webhook-endpoints/:id` | Update (url, events, is_active) |
+| DELETE| `/v1/webhook-endpoints/:id` | Delete |
+| POST | `/v1/webhook-endpoints/:id/test` | Queue a synthetic test delivery |
 | POST | `/v1/settlements` | On-demand settlement for a sub-merchant |
 | POST | `/v1/webhooks/safaricom` | Inbound Daraja callback |
 | POST | `/v1/webhooks/paystack` | Inbound Paystack webhook |

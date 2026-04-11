@@ -9,6 +9,7 @@ import {
   getCollection,
   listCollections,
   syncCollection,
+  refundCollection,
 } from '@/modules/collection/collection.service';
 import { CollectionBusinessStatus } from '@/modules/collection/collection.types';
 import { enforceRateLimit } from '@/infra/rateLimit';
@@ -152,6 +153,59 @@ router.get('/collections/:id', authenticate(), async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * Refund a successful collection (§5.8).
+ * Partial refunds allowed as long as the running total stays
+ * within the original collection amount.
+ */
+const refundBody = z.object({
+  amount: z.number().int().positive(),
+  reference: z.string().max(100).optional(),
+  reason: z.string().max(200).optional(),
+});
+
+router.post(
+  '/collections/:id/refund',
+  authenticate(),
+  idempotency('POST /collections/:id/refund', { required: true }),
+  async (req, res, next) => {
+    try {
+      requireSecretKey(req);
+      const existing = await getCollection(req.params.id);
+      if (existing.merchant_id !== req.ogunContext.principal!.merchantId) {
+        throw OgunError.notFound('Collection', req.params.id);
+      }
+      const body = parseBody(refundBody, req.body);
+      const c = await refundCollection({
+        collection_id: existing.id,
+        amount: body.amount,
+        reference: body.reference,
+        reason: body.reason,
+      });
+      res.json(
+        success(
+          {
+            id: c.id,
+            business_status: c.business_status,
+            internal_status: c.internal_status,
+            amount: c.amount,
+            refund_status: c.refund_status,
+            refunded_amount: c.refunded_amount,
+            refund_timestamp: c.refund_timestamp,
+            refund_reference: c.refund_reference,
+          },
+          {
+            request_id: req.ogunContext.requestId,
+            idempotency_key: req.ogunContext.idempotencyKey,
+          },
+        ),
+      );
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 /**
  * Force a provider status query. §12.3.

@@ -43,6 +43,16 @@ export type OgunEventType =
   | 'settlement.paid'
   | 'settlement.failed';
 
+export type WebhookEndpointRecord = {
+  id: string;
+  merchant_id: string;
+  url: string;
+  subscribed_events: string[];
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
+};
+
 export async function registerWebhookEndpoint(input: {
   merchant_id: string;
   url: string;
@@ -57,6 +67,75 @@ export async function registerWebhookEndpoint(input: {
     [id, input.merchant_id, input.url, secretHash, input.subscribed_events],
   );
   return { id };
+}
+
+export async function listWebhookEndpoints(
+  merchantId: string,
+): Promise<WebhookEndpointRecord[]> {
+  const { rows } = await query<WebhookEndpointRecord>(
+    `SELECT id, merchant_id, url, subscribed_events, is_active, created_at, updated_at
+       FROM webhook_endpoints
+      WHERE merchant_id = $1
+      ORDER BY created_at DESC`,
+    [merchantId],
+  );
+  return rows;
+}
+
+export async function getWebhookEndpoint(
+  merchantId: string,
+  id: string,
+): Promise<WebhookEndpointRecord | null> {
+  const { rows } = await query<WebhookEndpointRecord>(
+    `SELECT id, merchant_id, url, subscribed_events, is_active, created_at, updated_at
+       FROM webhook_endpoints
+      WHERE id = $1 AND merchant_id = $2
+      LIMIT 1`,
+    [id, merchantId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function updateWebhookEndpoint(
+  merchantId: string,
+  id: string,
+  patch: { url?: string; subscribed_events?: string[]; is_active?: boolean },
+): Promise<WebhookEndpointRecord | null> {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  let i = 3;
+  if (patch.url !== undefined) {
+    sets.push(`url = $${i++}`);
+    vals.push(patch.url);
+  }
+  if (patch.subscribed_events !== undefined) {
+    sets.push(`subscribed_events = $${i++}`);
+    vals.push(patch.subscribed_events);
+  }
+  if (patch.is_active !== undefined) {
+    sets.push(`is_active = $${i++}`);
+    vals.push(patch.is_active);
+  }
+  if (!sets.length) return getWebhookEndpoint(merchantId, id);
+  sets.push('updated_at = now()');
+  const { rows } = await query<WebhookEndpointRecord>(
+    `UPDATE webhook_endpoints SET ${sets.join(', ')}
+      WHERE id = $1 AND merchant_id = $2
+      RETURNING id, merchant_id, url, subscribed_events, is_active, created_at, updated_at`,
+    [id, merchantId, ...vals],
+  );
+  return rows[0] ?? null;
+}
+
+export async function deleteWebhookEndpoint(
+  merchantId: string,
+  id: string,
+): Promise<boolean> {
+  const res = await query(
+    `DELETE FROM webhook_endpoints WHERE id = $1 AND merchant_id = $2`,
+    [id, merchantId],
+  );
+  return (res.rowCount ?? 0) > 0;
 }
 
 /**

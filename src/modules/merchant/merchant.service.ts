@@ -10,6 +10,8 @@ import {
   listSubMerchantsByMerchant,
   activateSubMerchant,
   withMerchantTx,
+  patchMerchant,
+  patchSubMerchant,
 } from './merchant.repository';
 import {
   MerchantRow,
@@ -156,4 +158,29 @@ export async function suspendMerchant(merchantId: string, reason: string): Promi
   const m = await transitionMerchant(merchantId, MerchantStatus.Suspended);
   logger.info({ merchant_id: merchantId, reason }, 'merchant suspended');
   return m;
+}
+
+/**
+ * Partial update of a merchant profile. Only whitelisted columns are
+ * writable; status and settlement_currency cannot change after create.
+ * The underlying repository filters the column list for safety.
+ */
+export async function updateMerchantProfile(
+  merchantId: string,
+  patch: Record<string, unknown>,
+): Promise<MerchantRow> {
+  await getMerchant(merchantId);
+  const updated = await patchMerchant(merchantId, patch);
+  if (!updated) throw OgunError.notFound('Merchant', merchantId);
+  return updated;
+}
+
+export async function updateSubMerchantProfile(
+  subMerchantId: string,
+  patch: Record<string, unknown>,
+): Promise<SubMerchantRow> {
+  await getSubMerchant(subMerchantId);
+  const updated = await patchSubMerchant(subMerchantId, patch);
+  if (!updated) throw OgunError.notFound('SubMerchant', subMerchantId);
+  return updated;
 }

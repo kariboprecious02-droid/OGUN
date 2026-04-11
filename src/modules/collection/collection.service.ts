@@ -434,6 +434,151 @@ export async function listCollections(params: Parameters<typeof listCollectionsR
 }
 
 /**
+ * Refund a successful collection (§5.8).
+ *
+ * Rules:
+ *   - Only collections with business_status='successful' can be refunded.
+ *   - Refund amount must be 0 < amount <= (collection.amount - refunded_amount).
+ *   - If the collection is NOT yet in a settlement batch: remove it from
+ *     settlement eligibility (no settlement_batch_id yet, flip
+ *     settlement_eligible false) and debit the collection wallet directly
+ *     so the ledger reflects the refund immediately.
+ *   - If the collection IS already settled: record a
+ *     refund_adjustment_debit ledger entry that the next settlement cycle
+ *     will net against gross. The original settlement row is NOT touched.
+ *
+ * Partial refunds are supported and mark refund_status='partial_refund'.
+ * A full refund flips business_status='refunded'.
+ */
+export async function refundCollection(input: {
+  collection_id: string;
+  amount: number;
+  reference?: string;
+  reason?: string;
+}): Promise<CollectionRow> {
+  const updated = await withTransaction(async (client) => {
+    const row = await lockCollection(client, input.collection_id);
+    if (row.business_status !== 'successful') {
+      throw OgunError.invalidRequest(
+        `Only successful collections can be refunded (current: ${row.business_status})`,
+      );
+    }
+    const alreadyRefunded = row.refunded_amount ?? 0;
+    const available = row.amount - alreadyRefunded;
+    if (input.amount <= 0 || input.amount > available) {
+      throw OgunError.invalidRequest(
+        `Refund amount must be 0 < amount <= ${available} (remaining refundable)`,
+      );
+    }
+
+    const wallet = await findWalletBySub(row.sub_merchant_id, 'collection', row.currency);
+    if (!wallet) throw new Error(`No collection wallet for ${row.sub_merchant_id}`);
+    await lockWalletForUpdate(client, wallet.id);
+
+    // Decide path: already-settled vs still-eligible
+    const alreadySettled = row.settlement_batch_id !== null;
+    const refundRef = input.reference ?? `refund:${row.id}:${Date.now()}`;
+
+    if (alreadySettled) {
+      // Record an adjustment against the *next* settlement cycle.
+      await postLedgerEntry(client, {
+        merchantId: row.merchant_id,
+        subMerchantId: row.sub_merchant_id,
+        walletId: wallet.id,
+        walletType: 'collection',
+        transactionType: LedgerTxType.RefundAdjustmentDebit,
+        direction: 'debit',
+        amount: input.amount,
+        currency: row.currency,
+        referenceType: 'refund',
+        referenceId: row.id,
+        idempotencyKey: `refund_adjustment:${row.id}:${alreadyRefunded + input.amount}`,
+        description: input.reason ?? `Refund adjustment for ${row.id}`,
+      });
+    } else {
+      // Not yet settled — revoke settlement eligibility and debit the
+      // wallet directly so the wallet balance reflects the refund today.
+      // We post a manual adjustment entry tagged to the refund reference.
+      await postLedgerEntry(client, {
+        merchantId: row.merchant_id,
+        subMerchantId: row.sub_merchant_id,
+        walletId: wallet.id,
+        walletType: 'collection',
+        transactionType: LedgerTxType.ManualAdjustment,
+        direction: 'debit',
+        amount: input.amount,
+        currency: row.currency,
+        referenceType: 'refund',
+        referenceId: row.id,
+        idempotencyKey: `refund_revoke:${row.id}:${alreadyRefunded + input.amount}`,
+        description: input.reason ?? `Pre-settlement refund for ${row.id}`,
+      });
+    }
+
+    const totalRefunded = alreadyRefunded + input.amount;
+    const isFull = totalRefunded >= row.amount;
+    const nowTs = new Date();
+
+    await updateCollectionStatus(client, row.id, {
+      refund_status: isFull ? 'refunded' : 'partial_refund',
+      refunded_amount: totalRefunded,
+      refund_timestamp: nowTs,
+      refund_reference: refundRef,
+      // If the full amount is refunded and the collection is not yet
+      // settled, flip it out of settlement eligibility. Already-settled
+      // collections keep business_status=refunded with settlement
+      // adjustment applied next cycle.
+      ...(isFull
+        ? {
+            business_status: 'refunded' as const,
+            internal_status: 'refunded' as CollectionInternalStatusValue,
+            settlement_eligible: alreadySettled ? row.settlement_eligible : false,
+          }
+        : {}),
+    });
+
+    await insertCollectionAudit(client, {
+      collection_id: row.id,
+      event_source: 'refund',
+      event_type: 'refund_posted',
+      previous_business_status: row.business_status,
+      new_business_status: isFull ? 'refunded' : row.business_status,
+      previous_internal_status: row.internal_status,
+      new_internal_status: isFull ? 'refunded' : row.internal_status,
+      details: {
+        refund_amount: input.amount,
+        total_refunded: totalRefunded,
+        already_settled: alreadySettled,
+        reference: refundRef,
+      },
+    });
+
+    return { ...row, refunded_amount: totalRefunded } as CollectionRow;
+  });
+
+  // Emit webhook for full refunds only — partial refunds are also worth
+  // an event, but we keep the emitted types aligned to §8.1 which lists
+  // only collection.refunded.
+  const finalRow = await findCollection(input.collection_id);
+  if (finalRow && finalRow.business_status === 'refunded') {
+    await emitEvent({
+      merchantId: finalRow.merchant_id,
+      type: 'collection.refunded',
+      data: {
+        collection_id: finalRow.id,
+        merchant_id: finalRow.merchant_id,
+        sub_merchant_id: finalRow.sub_merchant_id,
+        amount: finalRow.amount,
+        business_status: 'refunded',
+        refund_amount: finalRow.refunded_amount,
+        reference: finalRow.merchant_reference,
+      },
+    });
+  }
+  return finalRow ?? updated;
+}
+
+/**
  * Force a provider status query (§12.3). Rate-limited at the route layer
  * (1 call per collection per minute).  If the collection is already
  * terminal, returns the current row without calling the provider.

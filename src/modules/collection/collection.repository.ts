@@ -118,6 +118,10 @@ export async function updateCollectionStatus(
     settlement_eligible_at?: Date | null;
     wallet_credited?: boolean;
     wallet_credited_at?: Date | null;
+    refund_status?: 'none' | 'refunded' | 'partial_refund';
+    refunded_amount?: number | null;
+    refund_timestamp?: Date | null;
+    refund_reference?: string | null;
   },
 ): Promise<void> {
   const sets: string[] = [];

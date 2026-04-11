@@ -4,11 +4,13 @@ import { logger } from '@/infra/logger';
 import { requestContextMiddleware } from './middleware/requestContext';
 import { errorHandler } from './middleware/errorHandler';
 import merchantsRoutes from './routes/merchants.routes';
+import documentsRoutes from './routes/documents.routes';
 import collectionsRoutes from './routes/collections.routes';
 import payoutsRoutes from './routes/payouts.routes';
 import beneficiariesRoutes from './routes/beneficiaries.routes';
 import walletsRoutes from './routes/wallets.routes';
 import settlementsRoutes from './routes/settlements.routes';
+import webhookEndpointsRoutes from './routes/webhookEndpoints.routes';
 import adminRoutes from './routes/admin.routes';
 import webhookRoutes from './routes/webhooks.routes';
 import { initRegistry } from '@/modules/connectors/registry';
@@ -49,11 +51,13 @@ export function createApp(): express.Express {
 
   // Versioned routes
   app.use('/v1', merchantsRoutes);
+  app.use('/v1', documentsRoutes);
   app.use('/v1', collectionsRoutes);
   app.use('/v1', payoutsRoutes);
   app.use('/v1', beneficiariesRoutes);
   app.use('/v1', walletsRoutes);
   app.use('/v1', settlementsRoutes);
+  app.use('/v1', webhookEndpointsRoutes);
   app.use('/v1', adminRoutes);
 
   // 404
