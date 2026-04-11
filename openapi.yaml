@@ -1,0 +1,378 @@
+openapi: 3.1.0
+info:
+  title: Ogun Payment Infrastructure Platform
+  version: 4.1.0
+  description: |
+    Ogun is a Kenya-first payment infrastructure platform.
+    M-Pesa collections go through Safaricom Daraja direct; Airtel
+    collections and all payouts go through Paystack. Payouts are API-first;
+    the dashboard is for observability and reconciliation only.
+
+    All POST endpoints accept an `Idempotency-Key` header (UUID). Reusing
+    the same key with the same body returns the cached response; reusing
+    with a different body returns `409 idempotency_conflict`.
+  contact:
+    name: Ogun Developer Relations
+    url: https://docs.ogun.com
+servers:
+  - url: https://api.ogun.com/v1
+    description: Production
+  - url: https://sandbox.ogun.com/v1
+    description: Sandbox
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: sk_live_... or sk_test_...
+  parameters:
+    IdempotencyKeyHeader:
+      in: header
+      name: Idempotency-Key
+      required: true
+      schema: { type: string, format: uuid }
+      description: Client-generated UUID; same key + same body returns cached response
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+    IdempotencyConflict:
+      description: Idempotency-Key reused with different body
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [status, error, meta]
+      properties:
+        status: { type: string, enum: [error] }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_request
+                - unauthorized
+                - forbidden
+                - resource_not_found
+                - idempotency_conflict
+                - duplicate_request
+                - merchant_not_active
+                - sub_merchant_not_active
+                - method_not_enabled
+                - insufficient_payout_balance
+                - compliance_pending
+                - provider_timeout
+                - provider_rejected
+                - rate_limited
+                - internal_error
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+        meta:
+          type: object
+          properties:
+            request_id: { type: string }
+
+    SuccessEnvelope:
+      type: object
+      required: [status, data, meta]
+      properties:
+        status: { type: string, enum: [success] }
+        data: {}
+        meta: { type: object, additionalProperties: true }
+
+    MerchantCreate:
+      type: object
+      required: [legal_name, trading_name]
+      properties:
+        legal_name: { type: string }
+        trading_name: { type: string }
+        registration_number: { type: string }
+        tax_id: { type: string }
+        country: { type: string, minLength: 2, maxLength: 2, default: KE }
+        settlement_currency: { type: string, minLength: 3, maxLength: 3, default: KES }
+        business_category: { type: string }
+        contact:
+          type: object
+          properties:
+            name: { type: string }
+            email: { type: string, format: email }
+            phone: { type: string }
+
+    CollectionCreate:
+      type: object
+      required: [merchant_id, sub_merchant_id, amount, currency, method, customer]
+      properties:
+        merchant_id: { type: string, pattern: '^mrc_' }
+        sub_merchant_id: { type: string, pattern: '^smrc_' }
+        amount: { type: integer, minimum: 1, description: Cents }
+        currency: { type: string, example: KES }
+        method:
+          type: string
+          enum: [mpesa, airtel, demo]
+          description: mpesa → Safaricom direct, airtel → Paystack
+        customer:
+          type: object
+          required: [phone]
+          properties:
+            phone: { type: string }
+            name: { type: string }
+            email: { type: string, format: email }
+        reference: { type: string }
+        metadata: { type: object, additionalProperties: true }
+
+    CollectionListItem:
+      description: List view (§5.6.2) — business_status only
+      type: object
+      properties:
+        id: { type: string }
+        business_status:
+          type: string
+          enum: [pending, successful, failed, refunded]
+        amount: { type: integer }
+        fee_amount: { type: integer }
+        currency: { type: string }
+        method: { type: string }
+        provider: { type: string }
+        reference: { type: string, nullable: true }
+        sub_merchant_id: { type: string }
+        created_at: { type: string, format: date-time }
+
+    CollectionDetail:
+      description: Detail view (§5.6.3) — shows BOTH business_status AND internal_status
+      type: object
+      properties:
+        id: { type: string }
+        business_status:
+          type: string
+          enum: [pending, successful, failed, refunded]
+        internal_status:
+          type: string
+          enum:
+            [created, pending_submission, submitted, pending_customer_action,
+             processing, succeeded, failed, expired, cancelled, timed_out,
+             refunded, reversed]
+        status_reason: { type: string, nullable: true }
+        amount: { type: integer }
+        fee_amount: { type: integer }
+        customer_amount: { type: integer }
+        currency: { type: string }
+        method: { type: string }
+        provider: { type: string }
+        provider_reference: { type: string, nullable: true }
+        reference: { type: string, nullable: true }
+        settlement_eligible: { type: boolean }
+        wallet_credited: { type: boolean }
+        refund_status: { type: string }
+        poll_attempt_count: { type: integer }
+        polling_stop_reason: { type: string, nullable: true }
+        metadata: { type: object, additionalProperties: true, nullable: true }
+        created_at: { type: string, format: date-time }
+        final_resolved_at: { type: string, format: date-time, nullable: true }
+
+    PayoutCreate:
+      type: object
+      required: [merchant_id, sub_merchant_id, amount, currency, method, beneficiary]
+      properties:
+        merchant_id: { type: string, pattern: '^mrc_' }
+        sub_merchant_id: { type: string, pattern: '^smrc_' }
+        amount: { type: integer, minimum: 1 }
+        currency: { type: string }
+        method:
+          type: string
+          enum: [mobile_money, bank_transfer, demo]
+        beneficiary:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string }
+            mobile_number: { type: string }
+            bank_code: { type: string }
+            account_number: { type: string }
+        reference: { type: string }
+        reason: { type: string }
+        metadata: { type: object }
+
+    PayoutDetail:
+      description: Detail view (§6.6.3) — status + provider_status
+      type: object
+      properties:
+        payout_id: { type: string }
+        status:
+          type: string
+          enum: [created, queued, processing, pending_approval,
+                 pending_confirmation, succeeded, failed, reversed, cancelled]
+        provider_status: { type: string, nullable: true }
+        amount: { type: integer }
+        fee_amount: { type: integer }
+        total_debit: { type: integer }
+        recipient_amount: { type: integer }
+        fee_model:
+          type: string
+          enum: [merchant_covers, recipient_covers]
+        currency: { type: string }
+        method: { type: string }
+        provider: { type: string }
+        provider_reference: { type: string, nullable: true }
+        provider_transfer_code: { type: string, nullable: true }
+        wallet_reserved_amount: { type: integer }
+        reversal_indicator: { type: boolean }
+        failure_reason: { type: string, nullable: true }
+        reference: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        final_resolved_at: { type: string, format: date-time, nullable: true }
+
+paths:
+  /merchants:
+    post:
+      summary: Create a merchant
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MerchantCreate' }
+      responses:
+        '201':
+          description: Created
+          content: { application/json: { schema: { $ref: '#/components/schemas/SuccessEnvelope' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/IdempotencyConflict' }
+
+  /collections:
+    post:
+      summary: Create a collection (async; webhook-first, poller backup)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CollectionCreate' }
+      responses:
+        '201':
+          description: Collection created, business_status=pending
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CollectionListItem' }
+        '422':
+          description: merchant/sub-merchant not active, method not enabled, etc.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+
+    get:
+      summary: List collections (list view shows business_status only)
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50 }
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pending, successful, failed, refunded]
+        - in: query
+          name: sub_merchant_id
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/CollectionListItem' }
+
+  /collections/{id}:
+    get:
+      summary: Collection detail (shows BOTH business_status AND internal_status)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CollectionDetail' }
+
+  /payouts:
+    post:
+      summary: Create a payout (API-first; reserves total_debit synchronously)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PayoutCreate' }
+      responses:
+        '201':
+          description: Created and queued for provider dispatch
+          content: { application/json: { schema: { $ref: '#/components/schemas/SuccessEnvelope' } } }
+        '422':
+          description: Insufficient payout balance, method not enabled, merchant not active
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } }
+
+  /payouts/{id}:
+    get:
+      summary: Payout detail (shows status + provider_status)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/PayoutDetail' }
+
+  /wallets:
+    get:
+      summary: List wallets for the authenticated merchant
+      responses:
+        '200':
+          description: OK
+
+  /settlements:
+    post:
+      summary: Create & execute an on-demand settlement for one sub-merchant
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '201':
+          description: Settlement created and executed
+          content: { application/json: { schema: { $ref: '#/components/schemas/SuccessEnvelope' } } }
+
