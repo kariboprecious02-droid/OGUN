@@ -17,6 +17,7 @@ import { newId } from '@/infra/ids';
 import { hmacSha256Hex, sha256Hex } from '@/infra/crypto';
 import { logger } from '@/infra/logger';
 import { config } from '@/infra/config';
+import { enqueueWebhookDelivery, workersRunning } from '@/infra/queue';
 
 const RETRY_SCHEDULE_SECONDS = [5, 30, 120, 600, 3600, 21_600, 86_400];
 
@@ -171,13 +172,14 @@ export async function emitEvent(input: {
   }
 
   for (const ep of endpoints) {
+    const deliveryId = newId('webhookDelivery');
     await query(
       `INSERT INTO webhook_deliveries
          (id, merchant_id, webhook_endpoint_id, event_type, event_id,
           payload, payload_hash, delivery_status, attempt_count, next_retry_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',0, now())`,
       [
-        newId('webhookDelivery'),
+        deliveryId,
         input.merchantId,
         ep.id,
         input.type,
@@ -186,6 +188,12 @@ export async function emitEvent(input: {
         payloadHash,
       ],
     );
+    // If BullMQ workers are running, enqueue the dispatch job directly.
+    // Otherwise the setInterval fallback in server.ts will pick up the
+    // pending delivery by polling `webhook_deliveries` every 2s.
+    if (workersRunning()) {
+      await enqueueWebhookDelivery(deliveryId);
+    }
   }
 }
 

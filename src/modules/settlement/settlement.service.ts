@@ -16,6 +16,8 @@ import { postLedgerEntry } from '@/modules/wallet/ledger';
 import { LedgerTxType } from '@/modules/wallet/wallet.types';
 import { resolveEffectiveSettings } from '@/modules/merchant/settings.repository';
 import { emitEvent } from '@/modules/webhook/webhook.service';
+import { getEmailAdapter } from '@/infra/email';
+import { generateAndStoreReport, renderSettlementPdf } from './report';
 
 export type SettlementStatus =
   | 'created'
@@ -177,6 +179,15 @@ export async function createSettlement(input: {
 /**
  * Execute the settlement by debiting the collection wallet for net_amount.
  * Status transitions: created → queued → paid (or failed if insufficient).
+ *
+ * On success:
+ *   1. Debit collection wallet (ledger entry).
+ *   2. Generate PDF report + persist to storage, update settlements.report_url.
+ *   3. Dispatch settlement.paid webhook and email with PDF attached.
+ *   4. Queue a payout to the sub-merchant's configured destination.
+ *      The payout is created via the Payout Orchestrator so the
+ *      reservation/ledger path stays the single source of truth for
+ *      payout wallet state.  See §7.3.
  */
 export async function executeSettlement(settlementId: string): Promise<'paid' | 'failed'> {
   type SettlementRow = {
@@ -228,6 +239,60 @@ export async function executeSettlement(settlementId: string): Promise<'paid' | 
   });
 
   if (result === 'paid') {
+    // Generate + persist the report (best-effort; failure is logged
+    // but does not fail the settlement).
+    let reportUrl: string | null = null;
+    let pdfBuffer: Buffer | null = null;
+    try {
+      const stored = await generateAndStoreReport(settlementId);
+      reportUrl = stored.report_url;
+      // Re-render for the email attachment so we don't need to fetch
+      // from storage — cheap enough for MVP.
+      const rendered = await renderSettlementPdf(settlementId);
+      pdfBuffer = rendered.buffer;
+    } catch (err) {
+      logger.error({ err, settlementId }, 'settlement report generation failed');
+    }
+
+    // Email the settlement confirmation with the PDF attached.
+    try {
+      const recipients = await resolveNotificationRecipients(
+        settlement.merchant_id,
+        settlement.sub_merchant_id,
+      );
+      if (recipients.length > 0) {
+        const email = getEmailAdapter();
+        await email.send({
+          to: recipients,
+          subject: `Ogun settlement ${settlementId} — KES ${(netAmount / 100).toLocaleString()}`,
+          text: `Your settlement has been processed.\n\nAmount: KES ${(netAmount / 100).toLocaleString()}\nSettlement ID: ${settlementId}\n\nA detailed PDF report is attached.`,
+          attachments: pdfBuffer
+            ? [
+                {
+                  filename: `settlement-${settlementId}.pdf`,
+                  content: pdfBuffer,
+                  content_type: 'application/pdf',
+                },
+              ]
+            : undefined,
+          metadata: { settlement_id: settlementId },
+        });
+      }
+    } catch (err) {
+      logger.error({ err, settlementId }, 'settlement email dispatch failed');
+    }
+
+    // Queue the payout rail dispatch — done asynchronously via the
+    // Payout Orchestrator so its reservation + ledger semantics remain
+    // the single source of truth. Import deferred to break a require
+    // cycle (settlement → payout → webhook → settlement for events).
+    try {
+      const { dispatchSettlementPayout } = await import('./dispatch');
+      await dispatchSettlementPayout(settlementId);
+    } catch (err) {
+      logger.error({ err, settlementId }, 'settlement payout dispatch failed');
+    }
+
     await emitEvent({
       merchantId: settlement.merchant_id,
       type: 'settlement.paid',
@@ -235,6 +300,7 @@ export async function executeSettlement(settlementId: string): Promise<'paid' | 
         settlement_id: settlementId,
         sub_merchant_id: settlement.sub_merchant_id,
         net_amount: netAmount,
+        report_url: reportUrl,
       },
     });
   } else {
@@ -249,4 +315,33 @@ export async function executeSettlement(settlementId: string): Promise<'paid' | 
     });
   }
   return result;
+}
+
+async function resolveNotificationRecipients(
+  merchantId: string,
+  subMerchantId: string,
+): Promise<string[]> {
+  // Merge merchant-level notification_emails + sub-level override + the
+  // merchant contact_email. Returned deduped.
+  const { rows } = await query<{
+    merchant_emails: string[] | null;
+    sub_emails: string[] | null;
+    contact_email: string | null;
+  }>(
+    `SELECT
+        (SELECT notification_emails FROM merchant_settings
+           WHERE merchant_id = $1 AND sub_merchant_id IS NULL LIMIT 1) AS merchant_emails,
+        (SELECT notification_emails FROM merchant_settings
+           WHERE merchant_id = $1 AND sub_merchant_id = $2 LIMIT 1) AS sub_emails,
+        (SELECT contact_email FROM merchants WHERE id = $1) AS contact_email`,
+    [merchantId, subMerchantId],
+  );
+  const row = rows[0];
+  if (!row) return [];
+  const merged = new Set<string>();
+  for (const list of [row.merchant_emails, row.sub_emails]) {
+    if (list) for (const email of list) if (email) merged.add(email);
+  }
+  if (row.contact_email) merged.add(row.contact_email);
+  return Array.from(merged);
 }

@@ -4,6 +4,7 @@ import { logger } from './infra/logger';
 import { tickPoller } from './modules/polling/polling.service';
 import { dispatchDelivery } from './modules/webhook/webhook.service';
 import { query } from './infra/db/pool';
+import { isWorkerModeEnabled, startWorkers, stopWorkers } from './infra/queue';
 
 async function main(): Promise<void> {
   const app = createApp();
@@ -12,42 +13,60 @@ async function main(): Promise<void> {
     logger.info({ port: config.port, env: config.ogunEnv }, 'Ogun server listening');
   });
 
-  // Background workers — in production these run as separate processes
-  // behind BullMQ, but for the modular monolith we schedule them here.
+  // Background workers.
+  //
+  // Two modes:
+  //   - OGUN_WORKERS=1   → BullMQ-backed workers with repeatable jobs
+  //   - default          → in-process setInterval fallback (suitable for
+  //                        single-node dev; not safe across restarts)
+  //
+  // Both modes delegate to the same `tickPoller` / `dispatchDelivery`
+  // functions so the behavior is identical; only the scheduling strategy
+  // differs. Tests use the functions directly and skip both schedulers.
 
-  // Collection poller tick — every `intervalSeconds` seconds
-  const pollerInterval = setInterval(() => {
-    tickPoller().catch((err) => logger.error({ err }, 'poller tick failed'));
-  }, config.polling.intervalSeconds * 1000);
+  let pollerInterval: NodeJS.Timeout | null = null;
+  let webhookInterval: NodeJS.Timeout | null = null;
 
-  // Webhook delivery worker — every 2 seconds scan for pending deliveries
-  const webhookInterval = setInterval(async () => {
-    try {
-      const { rows } = await query<{ id: string }>(
-        `SELECT id FROM webhook_deliveries
-          WHERE delivery_status = 'pending'
-            AND next_retry_at <= now()
-          ORDER BY next_retry_at
-          LIMIT 50`,
-      );
-      for (const d of rows) {
-        await dispatchDelivery(d.id);
+  if (isWorkerModeEnabled()) {
+    await startWorkers();
+  } else {
+    pollerInterval = setInterval(() => {
+      tickPoller().catch((err) => logger.error({ err }, 'poller tick failed'));
+    }, config.polling.intervalSeconds * 1000);
+
+    webhookInterval = setInterval(async () => {
+      try {
+        const { rows } = await query<{ id: string }>(
+          `SELECT id FROM webhook_deliveries
+            WHERE delivery_status = 'pending'
+              AND next_retry_at <= now()
+            ORDER BY next_retry_at
+            LIMIT 50`,
+        );
+        for (const d of rows) {
+          await dispatchDelivery(d.id);
+        }
+      } catch (err) {
+        logger.error({ err }, 'webhook dispatch tick failed');
       }
-    } catch (err) {
-      logger.error({ err }, 'webhook dispatch tick failed');
-    }
-  }, 2_000);
+    }, 2_000);
+  }
 
-  const shutdown = (signal: string): void => {
+  const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'shutting down');
-    clearInterval(pollerInterval);
-    clearInterval(webhookInterval);
+    if (pollerInterval) clearInterval(pollerInterval);
+    if (webhookInterval) clearInterval(webhookInterval);
+    await stopWorkers();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 10_000).unref();
   };
 
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => {
+    void shutdown('SIGTERM');
+  });
+  process.on('SIGINT', () => {
+    void shutdown('SIGINT');
+  });
 }
 
 main().catch((err) => {

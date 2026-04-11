@@ -204,16 +204,29 @@ The unit tests cover:
 - Ledger delta invariants (§3.5 / §2.4) — end-to-end fee + reservation scenarios
 - Error envelope & HTTP status mapping (§10.2 / §11.2)
 
-## What is intentionally out of scope for this initial drop
+## Production readiness
 
-The MVP ships with runnable TypeScript for every module above. The
-following are thin stubs or TODOs left for the next phase:
+The backend MVP now ships with:
+- **Real Claude wiring** for compliance reasoning (`ANTHROPIC_API_KEY`
+  gated, falls back to a deterministic rule-driven stub in tests and
+  sandbox). Prompt caching is enabled on the system prompt.
+- **Settlement PDF reports** rendered via pdfkit, persisted through the
+  storage adapter, emailed to configured notification addresses, and
+  served via `GET /v1/settlements/:id/report`.
+- **Settlement → payout rail**: on `executeSettlement`, funds are moved
+  from the collection wallet to the payout wallet (including fee
+  pre-funding) and a real payout is created through the Payout
+  Orchestrator so the reservation + ledger logic stays the single
+  source of truth. `settlements.payout_id` is linked on success.
+- **BullMQ worker mode**: start the server with `OGUN_WORKERS=1` and
+  the poller tick + webhook delivery jobs run as BullMQ workers
+  against Redis instead of in-process setIntervals. The in-process
+  fallback is retained for tests and single-node dev.
+- **Email adapter**: `ConsoleEmailAdapter` for dev (logs), `SendGrid`
+  stub for prod, and a `CaptureEmailAdapter` for tests.
 
-- S3/document upload handler (interface exists; multipart not wired)
-- Settlement PDF report rendering
-- Dashboard frontend
-- BullMQ extraction — the poller and webhook dispatcher currently run as
-  in-process intervals; swap to BullMQ workers in Phase 2 without
-  touching module internals
-- Developer Academy static site (Ogun branded markdown already scaffolded
-  under `/docs` in follow-up drops)
+Remaining P2 items (not blocking backend MVP acceptance):
+- Real document extraction provider (Google Document AI / Textract)
+- Dashboard frontend (Next.js)
+- Developer Academy static site
+- Live Safaricom Daraja / Paystack credentials in CI

@@ -24,6 +24,8 @@ export async function createActiveMerchantFixture(options: {
   payoutFeePct?: number;
   payoutFeeModel?: 'merchant_covers' | 'recipient_covers';
   enabledMethods?: string[];
+  notificationEmails?: string[];
+  contactEmail?: string;
 } = {}): Promise<TestMerchant> {
   // Create active merchant directly — skips the compliance pipeline
   // since we're testing collection/payout flows downstream.
@@ -33,6 +35,7 @@ export async function createActiveMerchantFixture(options: {
     trading_name: 'Fixture',
     country: 'KE',
     settlement_currency: 'KES',
+    contact_email: options.contactEmail ?? 'fixture@example.com',
   });
   await query(`UPDATE merchants SET status = 'active' WHERE id = $1`, [merchant.id]);
 
@@ -52,7 +55,7 @@ export async function createActiveMerchantFixture(options: {
     payout_fee_model: options.payoutFeeModel ?? 'merchant_covers',
     settlement_fee_pct: 0,
     enabled_methods: options.enabledMethods ?? ['mpesa', 'airtel', 'demo'],
-    notification_emails: [],
+    notification_emails: options.notificationEmails ?? [],
   });
 
   await withTransaction(async (client) => {
