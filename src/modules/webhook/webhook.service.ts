@@ -14,7 +14,12 @@
 import axios from 'axios';
 import { query } from '@/infra/db/pool';
 import { newId } from '@/infra/ids';
-import { hmacSha256Hex, sha256Hex } from '@/infra/crypto';
+import {
+  hmacSha256Hex,
+  sha256Hex,
+  encryptSecret,
+  decryptSecret,
+} from '@/infra/crypto';
 import { logger } from '@/infra/logger';
 import { config } from '@/infra/config';
 import { enqueueWebhookDelivery, workersRunning } from '@/infra/queue';
@@ -62,10 +67,18 @@ export async function registerWebhookEndpoint(input: {
 }): Promise<{ id: string }> {
   const id = newId('webhookEndpoint');
   const secretHash = sha256Hex(input.webhookSecret);
+  // Store the plaintext secret encrypted so dispatch can sign with it.
+  // Encryption key is derived from the platform-wide signing salt for
+  // MVP; production should swap to KMS (keep the envelope version byte
+  // so old envelopes remain decryptable during migration).
+  const secretEncrypted = encryptSecret(
+    input.webhookSecret,
+    config.platform.webhookSigningSalt,
+  );
   await query(
-    `INSERT INTO webhook_endpoints (id, merchant_id, url, secret_hash, subscribed_events)
-     VALUES ($1,$2,$3,$4,$5)`,
-    [id, input.merchant_id, input.url, secretHash, input.subscribed_events],
+    `INSERT INTO webhook_endpoints (id, merchant_id, url, secret_hash, secret_encrypted, subscribed_events)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [id, input.merchant_id, input.url, secretHash, secretEncrypted, input.subscribed_events],
   );
   return { id };
 }
@@ -200,6 +213,11 @@ export async function emitEvent(input: {
 /**
  * Dispatch a single pending delivery. Called by the outbound worker.
  * Returns true if the delivery succeeded, false otherwise.
+ *
+ * Signs with the endpoint's own secret (stored AES-256-GCM encrypted
+ * in webhook_endpoints.secret_encrypted). Falls back to the
+ * platform-wide signing salt only if an endpoint predates migration
+ * 0003 and therefore has no encrypted secret.
  */
 export async function dispatchDelivery(deliveryId: string): Promise<boolean> {
   const { rows } = await query<{
@@ -212,9 +230,10 @@ export async function dispatchDelivery(deliveryId: string): Promise<boolean> {
     attempt_count: number;
     url: string;
     secret_hash: string;
+    secret_encrypted: string | null;
   }>(
     `SELECT d.id, d.merchant_id, d.webhook_endpoint_id, d.event_id, d.event_type,
-            d.payload, d.attempt_count, e.url, e.secret_hash
+            d.payload, d.attempt_count, e.url, e.secret_hash, e.secret_encrypted
        FROM webhook_deliveries d
        JOIN webhook_endpoints e ON e.id = d.webhook_endpoint_id
       WHERE d.id = $1`,
@@ -224,10 +243,18 @@ export async function dispatchDelivery(deliveryId: string): Promise<boolean> {
   if (!delivery) return false;
 
   const rawBody = typeof delivery.payload === 'string' ? delivery.payload : JSON.stringify(delivery.payload);
-  // In MVP we keep the webhook secret in plaintext in config; in production,
-  // the endpoint's whsec is stored encrypted and retrieved for signing.
-  // The demo uses the platform-wide salt as the signing secret for dev.
-  const signingSecret = config.platform.webhookSigningSalt;
+  let signingSecret: string;
+  if (delivery.secret_encrypted) {
+    try {
+      signingSecret = decryptSecret(delivery.secret_encrypted, config.platform.webhookSigningSalt);
+    } catch (err) {
+      logger.error({ err, endpoint: delivery.webhook_endpoint_id }, 'failed to decrypt webhook secret; falling back to salt');
+      signingSecret = config.platform.webhookSigningSalt;
+    }
+  } else {
+    // Legacy endpoint created before migration 0003 — use platform salt.
+    signingSecret = config.platform.webhookSigningSalt;
+  }
   const signature = `sha256=${hmacSha256Hex(rawBody, signingSecret)}`;
   const timestamp = new Date().toISOString();
 

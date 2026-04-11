@@ -44,3 +44,50 @@ export function maskKey(key: string): string {
 export function hashApiKey(key: string, salt: string): string {
   return crypto.createHmac('sha256', salt).update(key).digest('hex');
 }
+
+/**
+ * Reversible encryption for secrets we need to read back at runtime
+ * (e.g. webhook endpoint secrets used to sign outbound payloads).
+ *
+ * AES-256-GCM with a random 12-byte IV per encryption, prefixed with
+ * a version byte so we can rotate algorithms in the future.
+ *
+ * The key is derived from the platform-wide signing salt via SHA-256.
+ * In production this should come from KMS; MVP ships with a salt
+ * derived from `OGUN_WEBHOOK_SIGNING_SALT`.
+ */
+const ENCRYPTION_VERSION = 1;
+
+function deriveEncryptionKey(salt: string): Buffer {
+  return crypto.createHash('sha256').update(`ogun-enc-v${ENCRYPTION_VERSION}:${salt}`).digest();
+}
+
+export function encryptSecret(plaintext: string, salt: string): string {
+  const key = deriveEncryptionKey(salt);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const enc = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  // Envelope format: v1.<base64url(iv)>.<base64url(tag)>.<base64url(ciphertext)>
+  return [
+    `v${ENCRYPTION_VERSION}`,
+    iv.toString('base64url'),
+    tag.toString('base64url'),
+    enc.toString('base64url'),
+  ].join('.');
+}
+
+export function decryptSecret(envelope: string, salt: string): string {
+  const parts = envelope.split('.');
+  if (parts.length !== 4 || parts[0] !== `v${ENCRYPTION_VERSION}`) {
+    throw new Error('Invalid secret envelope');
+  }
+  const key = deriveEncryptionKey(salt);
+  const iv = Buffer.from(parts[1], 'base64url');
+  const tag = Buffer.from(parts[2], 'base64url');
+  const ciphertext = Buffer.from(parts[3], 'base64url');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  const dec = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  return dec.toString('utf8');
+}

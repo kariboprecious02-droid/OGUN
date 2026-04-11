@@ -3,6 +3,8 @@ import pinoHttp from 'pino-http';
 import { logger } from '@/infra/logger';
 import { requestContextMiddleware } from './middleware/requestContext';
 import { errorHandler } from './middleware/errorHandler';
+import { metricsMiddleware } from './middleware/metrics';
+import { renderMetrics } from '@/infra/metrics';
 import merchantsRoutes from './routes/merchants.routes';
 import documentsRoutes from './routes/documents.routes';
 import collectionsRoutes from './routes/collections.routes';
@@ -35,10 +37,17 @@ export function createApp(): express.Express {
   );
 
   app.use(requestContextMiddleware);
+  app.use(metricsMiddleware());
 
   // Health
   app.get('/healthz', (_req, res) => {
     res.json({ status: 'ok', service: 'ogun', version: '4.1.0' });
+  });
+
+  // Prometheus scrape endpoint
+  app.get('/metrics', (_req, res) => {
+    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.send(renderMetrics());
   });
 
   app.get('/v1', (_req, res) => {

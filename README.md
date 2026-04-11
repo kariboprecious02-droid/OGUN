@@ -224,9 +224,24 @@ The backend MVP now ships with:
   fallback is retained for tests and single-node dev.
 - **Email adapter**: `ConsoleEmailAdapter` for dev (logs), `SendGrid`
   stub for prod, and a `CaptureEmailAdapter` for tests.
+- **Per-endpoint webhook signing**: each webhook endpoint stores its
+  own AES-256-GCM encrypted secret and outbound deliveries are signed
+  with that endpoint-specific key, not a platform-wide salt.
+- **Ledger reconciliation worker** (§3.5 / §13.4): `reconcileAllWallets()`
+  compares stored balances against derived ledger sums for every
+  wallet, logs drift at ERROR, and persists drift events to
+  `ledger_drift_events` for ops review. Read-only by design — never
+  auto-corrects.
+- **Prometheus /metrics endpoint** with request counters and
+  duration histograms. Lightweight in-process implementation; no
+  external dependencies. Scrape-compatible with Grafana / Mimir.
+- **Full §9 demo simulator** covering all seven scenarios (001–007)
+  including the 5-minute TTL timeout path.
+- **Developer Academy** at [`/docs`](./docs/README.md) with all §11
+  sections (getting started, onboarding, collections, payouts,
+  settlements, webhooks, testing, errors).
 
 Remaining P2 items (not blocking backend MVP acceptance):
 - Real document extraction provider (Google Document AI / Textract)
-- Dashboard frontend (Next.js)
-- Developer Academy static site
+- Admin dashboard frontend (Next.js)
 - Live Safaricom Daraja / Paystack credentials in CI
