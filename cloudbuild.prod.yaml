@@ -1,0 +1,62 @@
+# Cloud Build — production promote on git tag
+#
+# Triggered ONLY by git tags matching `promote-*` (e.g. promote-v1.0.2).
+# Deploys the :latest image (which staging has already validated) to
+# the ogun-api-prod Cloud Run service.  Does NOT rebuild the image —
+# promotion uses whatever latest tag staging last deployed.
+#
+# Flow:
+#   1. Claude pushes code to the dev branch
+#   2. cloudbuild.yaml auto-deploys to ogun-api-staging (builds :latest)
+#   3. User verifies staging
+#   4. User says "ship it to prod" in chat
+#   5. Claude runs:
+#        git tag promote-v1.0.2
+#        git push origin promote-v1.0.2
+#   6. This config picks up the tag and deploys :latest to prod
+
+steps:
+  # Step 1: Verify the :latest image exists in Container Registry
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        IMAGE="gcr.io/$PROJECT_ID/ogun-api:latest"
+        echo "Promoting image: $IMAGE"
+        gcloud container images describe $IMAGE --format='value(image_summary.digest)' || {
+          echo "ERROR: :latest image does not exist. Push code to the staging branch first."
+          exit 1
+        }
+
+  # Step 2: Deploy the :latest image to production
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'ogun-api-prod'
+      - '--image=gcr.io/$PROJECT_ID/ogun-api:latest'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--quiet'
+
+  # Step 3: Record the promoted tag for audit
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "============================================"
+        echo "  PROMOTED TO PRODUCTION"
+        echo "============================================"
+        echo "  Tag:   $TAG_NAME"
+        echo "  Image: gcr.io/$PROJECT_ID/ogun-api:latest"
+        echo "  Service: ogun-api-prod"
+        echo "  Commit SHA: $COMMIT_SHA"
+        echo "============================================"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: '300s'

@@ -354,7 +354,7 @@ Then create the trigger:
 Verify it works:
 
 ```bash
-echo "Trigger created. The next git push to the branch will:"
+echo "Staging trigger created. The next git push to the branch will:"
 echo "  1. Build the Docker image (~2 min)"
 echo "  2. Push to Container Registry"
 echo "  3. Deploy to ogun-api-staging (~1 min)"
@@ -364,29 +364,73 @@ echo "Monitor builds at:"
 echo "  https://console.cloud.google.com/cloud-build/builds"
 ```
 
-## How updates flow after setup
+## STEP 18: Set up gated production promote
+
+Create a **second** Cloud Build trigger that deploys to production
+ONLY when Claude pushes a git tag matching `promote-*`. The user
+controls when this happens by saying "ship it" in chat.
+
+In the Cloud Console web UI:
+
+1. Go back to `https://console.cloud.google.com/cloud-build/triggers`
+2. Click **Create Trigger** (second one)
+3. Fill in:
+   - **Name**: `ogun-prod-promote`
+   - **Event**: Push new tag
+   - **Tag**: `^promote-.*$` (regex — matches tags like `promote-v1.0.2`, `promote-hotfix-auth`)
+   - **Source**: same GitHub repo (`kariboprecious02-droid/OGUN`)
+   - **Configuration**: Cloud Build configuration file
+   - **Location**: `cloudbuild.prod.yaml` (root of repo)
+4. Click **Create**
+
+Verify:
+
+```bash
+gcloud builds triggers list --region=global | head -20
+# Should show BOTH ogun-staging-auto-deploy AND ogun-prod-promote
+```
+
+## How updates flow after both triggers are set up
 
 ```
 Developer (Claude sandbox)
     │
-    ├── makes changes + runs 170 tests
+    ├── makes code changes + runs 170 tests locally
     ├── git push to GitHub
     │
     ▼
-GitHub ──── Cloud Build trigger ──── ogun-api-staging (auto, ~3 min)
+GitHub ──── cloudbuild.yaml ──── ogun-api-staging (auto, ~3 min)
     │
-    │   (user verifies staging looks good)
+    │   User verifies staging looks good, then says "ship it to prod"
     │
     ▼
-Manual: gcloud run deploy ogun-api-prod ──── ogun-api-prod (manual)
+Developer (Claude sandbox)
+    │
+    ├── git tag promote-v1.0.2
+    ├── git push origin promote-v1.0.2
+    │
+    ▼
+GitHub ──── cloudbuild.prod.yaml ──── ogun-api-prod (auto, ~1 min)
 ```
 
-- **Staging**: auto-deploys on every push (~3 minutes)
-- **Production**: always manual — run this in Cloud Shell when ready:
-  ```bash
-  gcloud run deploy ogun-api-prod \
-    --image=gcr.io/$PROJECT_ID/ogun-api:latest \
-    --region=us-central1
-  ```
+- **Staging**: auto-deploys on every push to the dev branch
+- **Production**: auto-deploys ONLY on `promote-*` git tags
+- Claude can do both from the sandbox using git alone — no gcloud
+  calls needed
+- The user's approval is the gate between the two
+
+If you ever need to roll back production, push a tag pointing at an
+older commit:
+```bash
+git tag promote-rollback-v1.0.1 <older-commit-sha>
+git push origin promote-rollback-v1.0.1
+```
+
+Or redeploy a specific image manually:
+```bash
+gcloud run deploy ogun-api-prod \
+  --image=gcr.io/$PROJECT_ID/ogun-api:<specific-sha> \
+  --region=us-central1
+```
 
 ## Cost: ~35-40 USD/month for both environments
