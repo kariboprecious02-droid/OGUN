@@ -1,0 +1,50 @@
+# Cloud Build — auto-deploy to staging on push
+#
+# Triggers on pushes to the development branch. Builds the API
+# Docker image and deploys to ogun-api-staging on Cloud Run.
+#
+# Production is NEVER touched by this pipeline. Promote manually:
+#   gcloud run deploy ogun-api-prod --image=gcr.io/$PROJECT_ID/ogun-api --region=us-central1
+
+steps:
+  # Step 1: Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/ogun-api:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/ogun-api:latest'
+      - '.'
+
+  # Step 2: Push to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/ogun-api:$COMMIT_SHA'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/ogun-api:latest'
+
+  # Step 3: Deploy to staging Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'ogun-api-staging'
+      - '--image=gcr.io/$PROJECT_ID/ogun-api:$COMMIT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--quiet'
+
+images:
+  - 'gcr.io/$PROJECT_ID/ogun-api:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/ogun-api:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: '600s'

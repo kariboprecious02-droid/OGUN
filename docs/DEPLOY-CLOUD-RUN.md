@@ -300,12 +300,93 @@ echo "========================================"
 
 Report all these values back to the user.
 
-## How to update after deployment
+## STEP 17: Set up auto-deploy for staging
+
+This connects GitHub to Cloud Build so that every push to the
+development branch automatically deploys to staging. Production
+is NEVER touched by this pipeline.
 
 ```bash
-cd ~/OGUN && git pull
-gcloud run deploy ogun-api-staging --source=. --region=us-central1  # staging first
-gcloud run deploy ogun-api-prod --source=. --region=us-central1     # then prod
+# Enable Container Registry
+gcloud services enable containerregistry.googleapis.com
+
+# Grant Cloud Build permission to deploy to Cloud Run
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+CB_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:$CB_SA" \
+  --role="roles/run.admin" --quiet
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:$CB_SA" \
+  --role="roles/iam.serviceAccountUser" --quiet
+
+# Grant Cloud Build access to secrets (so the deployed service keeps its env)
+for S in ogun-db-password paystack-secret-key paystack-public-key ogun-signing-salt; do
+  gcloud secrets add-iam-policy-binding $S \
+    --member="serviceAccount:$CB_SA" \
+    --role="roles/secretmanager.secretAccessor" --quiet
+done
 ```
+
+Now connect GitHub to Cloud Build. This step must be done in the
+Cloud Console web UI:
+
+1. Open `https://console.cloud.google.com/cloud-build/triggers`
+2. Click **Connect Repository**
+3. Select **GitHub** as the source
+4. Authorize Google Cloud Build on your GitHub account
+5. Select the repository: `kariboprecious02-droid/OGUN`
+6. Click **Connect**
+
+Then create the trigger:
+
+7. Click **Create Trigger**
+8. Fill in:
+   - **Name**: `ogun-staging-auto-deploy`
+   - **Event**: Push to a branch
+   - **Branch**: `^claude/payment-infrastructure-kenya-jzQmF$`
+   - **Configuration**: Cloud Build configuration file
+   - **Location**: `cloudbuild.yaml` (root of repo)
+9. Click **Create**
+
+Verify it works:
+
+```bash
+echo "Trigger created. The next git push to the branch will:"
+echo "  1. Build the Docker image (~2 min)"
+echo "  2. Push to Container Registry"
+echo "  3. Deploy to ogun-api-staging (~1 min)"
+echo "  4. Production is NOT affected"
+echo ""
+echo "Monitor builds at:"
+echo "  https://console.cloud.google.com/cloud-build/builds"
+```
+
+## How updates flow after setup
+
+```
+Developer (Claude sandbox)
+    │
+    ├── makes changes + runs 170 tests
+    ├── git push to GitHub
+    │
+    ▼
+GitHub ──── Cloud Build trigger ──── ogun-api-staging (auto, ~3 min)
+    │
+    │   (user verifies staging looks good)
+    │
+    ▼
+Manual: gcloud run deploy ogun-api-prod ──── ogun-api-prod (manual)
+```
+
+- **Staging**: auto-deploys on every push (~3 minutes)
+- **Production**: always manual — run this in Cloud Shell when ready:
+  ```bash
+  gcloud run deploy ogun-api-prod \
+    --image=gcr.io/$PROJECT_ID/ogun-api:latest \
+    --region=us-central1
+  ```
 
 ## Cost: ~35-40 USD/month for both environments
