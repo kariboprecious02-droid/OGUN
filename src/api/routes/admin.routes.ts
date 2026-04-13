@@ -53,6 +53,14 @@ const adminCreateMerchantBody = z.object({
   country: z.string().length(2).optional(),
   settlement_currency: z.string().length(3).optional(),
   business_category: z.string().optional(),
+  business_address: z
+    .object({
+      street: z.string().optional(),
+      city: z.string().optional(),
+      county: z.string().optional(),
+      postal_code: z.string().optional(),
+    })
+    .optional(),
   website_url: z.string().url().optional(),
   expected_monthly_volume: z.number().int().nonnegative().optional(),
   expected_avg_ticket: z.number().int().nonnegative().optional(),

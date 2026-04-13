@@ -263,11 +263,22 @@ export async function listMerchants(params: {
 export type CreateMerchantInput = {
   legal_name: string;
   trading_name: string;
+  registration_number?: string;
+  tax_id?: string;
   country?: string;
   settlement_currency?: string;
   business_category?: string;
+  business_address?: {
+    street?: string;
+    city?: string;
+    county?: string;
+    postal_code?: string;
+  };
   website_url?: string;
+  expected_monthly_volume?: number;
+  expected_avg_ticket?: number;
   contact?: { name?: string; email?: string; phone?: string };
+  notification_emails?: string[];
 };
 
 export async function createMerchantAsAdmin(
