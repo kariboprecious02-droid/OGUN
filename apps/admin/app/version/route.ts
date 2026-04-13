@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(): Promise<NextResponse> {
   return NextResponse.json({
     app: 'ogun-admin',
-    build: 'api-url-wired-2',
+    build: 'api-url-runtime-3',
     login_disabled: true,
     commit: process.env.COMMIT_SHA || 'unknown',
     api_base_url: process.env.OGUN_API_BASE_URL || 'unset',
