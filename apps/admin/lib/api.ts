@@ -260,6 +260,25 @@ export async function listMerchants(params: {
   return paged<MerchantSummary>(`/admin/merchants?${qs.toString()}`);
 }
 
+export type CreateMerchantInput = {
+  legal_name: string;
+  trading_name: string;
+  country?: string;
+  settlement_currency?: string;
+  business_category?: string;
+  website_url?: string;
+  contact?: { name?: string; email?: string; phone?: string };
+};
+
+export async function createMerchantAsAdmin(
+  input: CreateMerchantInput,
+): Promise<{ id: string; status: string; legal_name: string }> {
+  return request<{ id: string; status: string; legal_name: string }>('/admin/merchants', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 export async function getMerchantDetail(id: string): Promise<MerchantDetail> {
   return request<MerchantDetail>(`/admin/merchants/${id}`);
 }

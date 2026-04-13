@@ -9,7 +9,7 @@ import { parseBody, parseQuery, pagination, resolvePagination } from '@/api/vali
 import { success, paginated } from '@/infra/response';
 import { OgunError } from '@/infra/errors';
 import { submitManualDecision } from '@/modules/compliance/compliance.service';
-import { activateMerchant, suspendMerchant, getMerchant } from '@/modules/merchant/merchant.service';
+import { activateMerchant, suspendMerchant, getMerchant, createMerchant } from '@/modules/merchant/merchant.service';
 import { issueCredentials } from '@/modules/auth/auth.service';
 import { config } from '@/infra/config';
 import { query } from '@/infra/db/pool';
@@ -34,6 +34,52 @@ const reviewBody = z.object({
   decision: z.enum(['approve', 'changes_requested', 'reject']),
   notes: z.string().max(2000),
   actor_id: z.string().optional(),
+});
+
+/**
+ * POST /v1/admin/merchants — admin-authenticated merchant creation.
+ *
+ * The public POST /v1/merchants endpoint requires a merchant secret
+ * key, which creates a chicken-and-egg problem for bootstrapping the
+ * very first merchant and for admin-initiated onboarding from the
+ * dashboard. This endpoint accepts the same body schema but validates
+ * via X-Ogun-Admin-Secret instead.
+ */
+const adminCreateMerchantBody = z.object({
+  legal_name: z.string().min(2),
+  trading_name: z.string().min(2),
+  registration_number: z.string().optional(),
+  tax_id: z.string().optional(),
+  country: z.string().length(2).optional(),
+  settlement_currency: z.string().length(3).optional(),
+  business_category: z.string().optional(),
+  website_url: z.string().url().optional(),
+  expected_monthly_volume: z.number().int().nonnegative().optional(),
+  expected_avg_ticket: z.number().int().nonnegative().optional(),
+  contact: z
+    .object({
+      name: z.string().optional(),
+      email: z.string().email().optional(),
+      phone: z.string().optional(),
+    })
+    .optional(),
+  notification_emails: z.array(z.string().email()).optional(),
+});
+
+router.post('/admin/merchants', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const body = parseBody(adminCreateMerchantBody, req.body);
+    const merchant = await createMerchant(body);
+    res.status(201).json(
+      success(
+        { id: merchant.id, status: merchant.status, legal_name: merchant.legal_name },
+        { request_id: req.ogunContext.requestId },
+      ),
+    );
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.post('/admin/compliance-reviews/:merchantId', async (req, res, next) => {
