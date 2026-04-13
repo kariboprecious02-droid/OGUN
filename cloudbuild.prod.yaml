@@ -78,6 +78,7 @@ steps:
             --image=$$ADMIN_IMAGE \
             --region=us-central1 \
             --platform=managed \
+            --update-env-vars=OGUN_API_BASE_URL=https://ogun-api-prod-552820821813.us-central1.run.app/v1 \
             --quiet
         fi
 
