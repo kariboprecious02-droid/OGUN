@@ -30,12 +30,16 @@ steps:
       - |
         set -e
 
-        # Fetch the commit message for this build
-        COMMIT_MSG=$(git log -1 --format=%s $COMMIT_SHA 2>/dev/null || echo "")
-        echo "Commit message: $COMMIT_MSG"
+        # Fetch the commit message for this build.
+        # NOTE: Cloud Build's substitution engine processes this YAML before
+        # handing it to bash. Cloud Build built-ins ($COMMIT_SHA, $PROJECT_ID)
+        # are resolved by Cloud Build. Shell-only variables MUST be escaped
+        # with $$ so bash receives a literal $ sign.
+        COMMIT_MSG=$$(git log -1 --format=%s $COMMIT_SHA 2>/dev/null || echo "")
+        echo "Commit message: $$COMMIT_MSG"
 
         # Exit cleanly if [promote] is not present (case-insensitive)
-        if ! echo "$COMMIT_MSG" | grep -iq '\[promote\]'; then
+        if ! echo "$$COMMIT_MSG" | grep -iq '\[promote\]'; then
           echo "No [promote] marker found in commit message — skipping production deploy."
           echo "This is expected for normal staging-only commits."
           exit 0
@@ -45,14 +49,14 @@ steps:
 
         # Verify the :latest image exists
         IMAGE="gcr.io/$PROJECT_ID/ogun-api:latest"
-        if ! gcloud container images describe $IMAGE --format='value(image_summary.digest)' >/dev/null 2>&1; then
-          echo "ERROR: $IMAGE does not exist. Push a code commit first so staging builds :latest."
+        if ! gcloud container images describe $$IMAGE --format='value(image_summary.digest)' >/dev/null 2>&1; then
+          echo "ERROR: $$IMAGE does not exist. Push a code commit first so staging builds :latest."
           exit 1
         fi
 
         # Deploy to production
         gcloud run deploy ogun-api-prod \
-          --image=$IMAGE \
+          --image=$$IMAGE \
           --region=us-central1 \
           --platform=managed \
           --quiet
@@ -61,8 +65,8 @@ steps:
         echo "  PROMOTED TO PRODUCTION"
         echo "============================================"
         echo "  Commit:  $COMMIT_SHA"
-        echo "  Message: $COMMIT_MSG"
-        echo "  Image:   $IMAGE"
+        echo "  Message: $$COMMIT_MSG"
+        echo "  Image:   $$IMAGE"
         echo "  Service: ogun-api-prod"
         echo "============================================"
 
