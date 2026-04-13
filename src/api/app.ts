@@ -41,7 +41,7 @@ export function createApp(): express.Express {
 
   // Health
   app.get('/healthz', (_req, res) => {
-    res.json({ status: 'ok', service: 'ogun', version: '4.1.0' });
+    res.json({ status: 'ok', service: 'ogun', version: '4.1.1' });
   });
 
   // Prometheus scrape endpoint
@@ -53,7 +53,7 @@ export function createApp(): express.Express {
   app.get('/v1', (_req, res) => {
     res.json({
       name: 'Ogun Payment Infrastructure Platform',
-      version: '4.1.0',
+      version: '4.1.1',
       docs: 'https://docs.ogun.com',
     });
   });
