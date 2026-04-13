@@ -1,20 +1,20 @@
 import { NextResponse } from 'next/server';
 
 /**
- * Admin build probe + live API test.
- *
- * Hitting this URL returns build info AND performs a live call to the
- * API's admin endpoint so we can see exactly what error (if any) the
- * dashboard would hit. Way faster than guessing or adding console.log
- * to individual pages.
+ * Admin build probe + live API tests for every endpoint the home
+ * page hits. Any endpoint that doesn't return status:200 is our
+ * crash culprit.
  */
 
 export const dynamic = 'force-dynamic';
 
-async function testApiCall(): Promise<Record<string, unknown>> {
+async function testEndpoint(
+  label: string,
+  path: string,
+): Promise<Record<string, unknown>> {
   const baseUrl = process.env.OGUN_API_BASE_URL || 'http://localhost:4000/v1';
   const secret = process.env.OGUN_ADMIN_SECRET || 'changeme-set-in-prod';
-  const url = `${baseUrl}/admin/merchants?status=active&limit=1`;
+  const url = `${baseUrl}${path}`;
   try {
     const res = await fetch(url, {
       headers: { 'X-Ogun-Admin-Secret': secret, 'Content-Type': 'application/json' },
@@ -25,32 +25,32 @@ async function testApiCall(): Promise<Record<string, unknown>> {
     try {
       body = JSON.parse(text);
     } catch {
-      body = text.slice(0, 500);
+      body = text.slice(0, 300);
     }
-    return {
-      url,
-      status: res.status,
-      ok: res.ok,
-      body,
-    };
+    return { label, url, status: res.status, ok: res.ok, body };
   } catch (err) {
     return {
+      label,
       url,
       error: err instanceof Error ? err.message : String(err),
-      error_type: err instanceof Error ? err.constructor.name : typeof err,
     };
   }
 }
 
 export async function GET(): Promise<NextResponse> {
-  const apiTest = await testApiCall();
+  const tests = await Promise.all([
+    testEndpoint('merchants_pending', '/admin/merchants?status=under_manual_review&limit=1'),
+    testEndpoint('merchants_active', '/admin/merchants?status=active&limit=1'),
+    testEndpoint('wallets', '/admin/wallets?limit=5'),
+    testEndpoint('collections', '/admin/collections?limit=5'),
+    testEndpoint('payouts', '/admin/payouts?limit=5'),
+  ]);
   return NextResponse.json({
     app: 'ogun-admin',
-    build: 'api-test-4',
+    build: 'all-endpoints-5',
     login_disabled: true,
     commit: process.env.COMMIT_SHA || 'unknown',
     api_base_url: process.env.OGUN_API_BASE_URL || 'unset',
-    admin_secret_length: (process.env.OGUN_ADMIN_SECRET || 'changeme-set-in-prod').length,
-    api_test: apiTest,
+    api_tests: tests,
   });
 }
