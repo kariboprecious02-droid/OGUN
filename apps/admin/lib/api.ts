@@ -15,6 +15,11 @@ import { cookies } from 'next/headers';
 
 const BASE_URL = process.env.OGUN_API_BASE_URL || 'http://localhost:4000/v1';
 const ADMIN_COOKIE = 'ogun_admin_secret';
+// Server-side admin secret. Falls back to the API's default so the dashboard
+// works out-of-the-box without env wiring. Override with OGUN_ADMIN_SECRET
+// in the admin service env once a proper secret is set.
+// SERVER-ONLY — never prefix with NEXT_PUBLIC_ so it can't leak to the browser.
+const SERVER_ADMIN_SECRET = process.env.OGUN_ADMIN_SECRET || 'changeme-set-in-prod';
 
 export class OgunApiError extends Error {
   constructor(
@@ -40,7 +45,11 @@ async function request<T>(
   init: RequestInit & { adminSecret?: string } = {},
 ): Promise<T> {
   const cookieStore = await cookies();
-  const secret = init.adminSecret ?? cookieStore.get(ADMIN_COOKIE)?.value ?? '';
+  // Precedence: explicit override → cookie (legacy) → server env default.
+  // The env default makes login optional: the dashboard works for anyone
+  // who can reach the URL. Re-add login later by gating at a proxy/IAP.
+  const secret =
+    init.adminSecret ?? cookieStore.get(ADMIN_COOKIE)?.value ?? SERVER_ADMIN_SECRET;
   const url = `${BASE_URL}${path}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

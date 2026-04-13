@@ -45,32 +45,58 @@ steps:
           exit 0
         fi
 
-        echo "[promote] marker detected — promoting :latest image to production."
+        echo "[promote] marker detected — promoting :latest images to production."
 
-        # Verify the :latest image exists
-        IMAGE="gcr.io/$PROJECT_ID/ogun-api:latest"
-        if ! gcloud container images describe $$IMAGE --format='value(image_summary.digest)' >/dev/null 2>&1; then
-          echo "ERROR: $$IMAGE does not exist. Push a code commit first so staging builds :latest."
+        # Verify both :latest images exist
+        API_IMAGE="gcr.io/$PROJECT_ID/ogun-api:latest"
+        ADMIN_IMAGE="gcr.io/$PROJECT_ID/ogun-admin:latest"
+
+        if ! gcloud container images describe $$API_IMAGE --format='value(image_summary.digest)' >/dev/null 2>&1; then
+          echo "ERROR: $$API_IMAGE does not exist. Push a code commit first so staging builds :latest."
           exit 1
         fi
 
-        # Deploy to production
+        # Admin image is optional — if it doesn't exist yet (first run before
+        # the admin was added to the staging pipeline), skip admin deploy
+        # rather than failing the whole promote.
+        ADMIN_EXISTS=true
+        if ! gcloud container images describe $$ADMIN_IMAGE --format='value(image_summary.digest)' >/dev/null 2>&1; then
+          echo "WARN: $$ADMIN_IMAGE does not exist — skipping admin promote."
+          ADMIN_EXISTS=false
+        fi
+
+        # Deploy API to production
         gcloud run deploy ogun-api-prod \
-          --image=$$IMAGE \
+          --image=$$API_IMAGE \
           --region=us-central1 \
           --platform=managed \
           --quiet
 
+        # Deploy admin to production (service name: ogun-admin)
+        if [ "$$ADMIN_EXISTS" = "true" ]; then
+          gcloud run deploy ogun-admin \
+            --image=$$ADMIN_IMAGE \
+            --region=us-central1 \
+            --platform=managed \
+            --quiet
+        fi
+
         echo "============================================"
         echo "  PROMOTED TO PRODUCTION"
         echo "============================================"
-        echo "  Commit:  $COMMIT_SHA"
-        echo "  Message: $$COMMIT_MSG"
-        echo "  Image:   $$IMAGE"
-        echo "  Service: ogun-api-prod"
+        echo "  Commit:       $COMMIT_SHA"
+        echo "  Message:      $$COMMIT_MSG"
+        echo "  API image:    $$API_IMAGE"
+        echo "  API service:  ogun-api-prod"
+        if [ "$$ADMIN_EXISTS" = "true" ]; then
+          echo "  Admin image:  $$ADMIN_IMAGE"
+          echo "  Admin service: ogun-admin"
+        else
+          echo "  Admin:        SKIPPED (image not yet built)"
+        fi
         echo "============================================"
 
 options:
   logging: CLOUD_LOGGING_ONLY
 
-timeout: '300s'
+timeout: '600s'

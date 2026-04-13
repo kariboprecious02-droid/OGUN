@@ -1,16 +1,18 @@
 /**
- * Admin session helpers. The admin dashboard uses a single cookie-based
- * auth check: on login the user submits the OGUN_ADMIN_SECRET value;
- * we verify it with POST /v1/admin/session and, if valid, persist it
- * in an httpOnly cookie named `ogun_admin_secret`.
+ * Admin session helpers.
  *
- * The Ogun API client reads this cookie on every server-rendered
- * request and attaches it as the X-Ogun-Admin-Secret header. It is
- * NEVER exposed to the browser.
+ * Auth is currently DISABLED: the dashboard is accessible to anyone
+ * with the URL. The admin secret used for API calls is read from the
+ * server-side OGUN_ADMIN_SECRET env (see lib/api.ts), never from the
+ * browser. Re-add login later by gating at a proxy / Cloud Run IAP /
+ * Cloudflare Access in front of the admin service.
+ *
+ * The cookie + loginWithSecret helpers remain for backward compat but
+ * are no longer required — requireAuth() is a no-op, isAuthenticated()
+ * always returns true.
  */
 
 import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
 import { verifyAdminSession } from './api';
 
 const COOKIE_NAME = 'ogun_admin_secret';
@@ -36,12 +38,10 @@ export async function logout(): Promise<void> {
 }
 
 export async function isAuthenticated(): Promise<boolean> {
-  const cookieStore = await cookies();
-  return !!cookieStore.get(COOKIE_NAME)?.value;
+  // Auth disabled — dashboard is accessible to anyone with the URL.
+  return true;
 }
 
 export async function requireAuth(): Promise<void> {
-  if (!(await isAuthenticated())) {
-    redirect('/login');
-  }
+  // No-op: auth is disabled for now.
 }

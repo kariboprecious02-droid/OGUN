@@ -1,14 +1,16 @@
 # Cloud Build — auto-deploy to staging on push
 #
-# Triggers on pushes to the development branch. Builds the API
-# Docker image and deploys to ogun-api-staging on Cloud Run.
+# Triggers on pushes to the development branch. Builds + deploys BOTH
+# the API (Express) and the admin dashboard (Next.js) to their
+# respective staging Cloud Run services.
 #
-# Production is NEVER touched by this pipeline. Promote manually:
-#   gcloud run deploy ogun-api-prod --image=gcr.io/$PROJECT_ID/ogun-api --region=us-central1
+# Production is NEVER touched by this pipeline. Promote via the
+# cloudbuild.prod.yaml trigger with a [promote] commit marker.
 
 steps:
-  # Step 1: Build the Docker image
+  # ---------- API: build + push ----------
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-api'
     args:
       - 'build'
       - '-t'
@@ -17,19 +19,38 @@ steps:
       - 'gcr.io/$PROJECT_ID/ogun-api:latest'
       - '.'
 
-  # Step 2: Push to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - 'gcr.io/$PROJECT_ID/ogun-api:$COMMIT_SHA'
+    id: 'push-api-sha'
+    args: ['push', 'gcr.io/$PROJECT_ID/ogun-api:$COMMIT_SHA']
 
   - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - 'gcr.io/$PROJECT_ID/ogun-api:latest'
+    id: 'push-api-latest'
+    args: ['push', 'gcr.io/$PROJECT_ID/ogun-api:latest']
 
-  # Step 3: Deploy to staging Cloud Run
+  # ---------- Admin: build + push ----------
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-admin'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/ogun-admin:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/ogun-admin:latest'
+      - '-f'
+      - 'apps/admin/Dockerfile'
+      - 'apps/admin'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-admin-sha'
+    args: ['push', 'gcr.io/$PROJECT_ID/ogun-admin:$COMMIT_SHA']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-admin-latest'
+    args: ['push', 'gcr.io/$PROJECT_ID/ogun-admin:latest']
+
+  # ---------- Deploy both to staging ----------
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-api-staging'
     entrypoint: 'gcloud'
     args:
       - 'run'
@@ -40,11 +61,26 @@ steps:
       - '--platform=managed'
       - '--quiet'
 
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-admin-staging'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'ogun-admin-staging'
+      - '--image=gcr.io/$PROJECT_ID/ogun-admin:$COMMIT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--quiet'
+
 images:
   - 'gcr.io/$PROJECT_ID/ogun-api:$COMMIT_SHA'
   - 'gcr.io/$PROJECT_ID/ogun-api:latest'
+  - 'gcr.io/$PROJECT_ID/ogun-admin:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/ogun-admin:latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
 
-timeout: '600s'
+timeout: '1200s'
