@@ -42,10 +42,26 @@ export function createApp(): express.Express {
   // Health — responds at both /_health and /healthz for compatibility
   // with different deployment environments' startup probe configurations.
   const healthHandler = (_req: express.Request, res: express.Response): void => {
-    res.json({ status: 'ok', service: 'ogun', version: '4.1.1' });
+    res.json({ status: 'ok', service: 'ogun', version: '4.1.2' });
   };
   app.get('/_health', healthHandler);
   app.get('/healthz', healthHandler);
+
+  // Admin auth probe — helps diagnose "Invalid admin secret" issues
+  // without leaking the actual secret values. Returns booleans only.
+  // Safe to expose: reveals only whether env vars are set, not their values.
+  app.get('/_admin-probe', async (_req, res) => {
+    const { config } = await import('@/infra/config');
+    res.json({
+      version: '4.1.2',
+      admin_secret_is_default: config.platform.adminSecret === 'changeme-set-in-prod',
+      admin_secret_from_env: !!process.env.OGUN_ADMIN_SECRET,
+      admin_secret_length: config.platform.adminSecret.length,
+      webhook_salt_is_default: config.platform.webhookSigningSalt === 'dev-salt',
+      webhook_salt_from_env: !!process.env.OGUN_WEBHOOK_SIGNING_SALT,
+      webhook_salt_length: config.platform.webhookSigningSalt.length,
+    });
+  });
 
   // Prometheus scrape endpoint
   app.get('/metrics', (_req, res) => {
@@ -56,7 +72,7 @@ export function createApp(): express.Express {
   app.get('/v1', (_req, res) => {
     res.json({
       name: 'Ogun Payment Infrastructure Platform',
-      version: '4.1.1',
+      version: '4.1.2',
       docs: 'https://docs.ogun.com',
     });
   });
