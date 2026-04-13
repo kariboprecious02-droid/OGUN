@@ -18,7 +18,14 @@ const router = Router();
 
 function requireAdmin(req: import('express').Request): void {
   const header = req.header('X-Ogun-Admin-Secret');
-  if (!header || header !== config.platform.webhookSigningSalt) {
+  // Accept the dedicated admin secret. Also accept webhookSigningSalt as a
+  // transitional fallback so any deployments still wired to the old secret
+  // don't break during rollout — remove the fallback once all envs have
+  // OGUN_ADMIN_SECRET set explicitly.
+  const valid =
+    header === config.platform.adminSecret ||
+    header === config.platform.webhookSigningSalt;
+  if (!header || !valid) {
     throw OgunError.forbidden('Admin authentication required');
   }
 }
