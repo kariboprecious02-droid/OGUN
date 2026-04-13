@@ -208,7 +208,11 @@ export type Paginated<T> = {
 
 async function paged<T>(path: string): Promise<Paginated<T>> {
   const cookieStore = await cookies();
-  const secret = cookieStore.get(ADMIN_COOKIE)?.value ?? '';
+  // Match the auth fallback chain used by request<T>() — cookie first
+  // (legacy sessions), then server-side env default. Without this,
+  // listMerchants / listWallets / listCollections / listPayouts all
+  // send an empty secret and get 403ed, crashing every server page.
+  const secret = cookieStore.get(ADMIN_COOKIE)?.value ?? SERVER_ADMIN_SECRET;
   const url = `${BASE_URL}${path}`;
   const res = await fetch(url, {
     headers: { 'X-Ogun-Admin-Secret': secret },
