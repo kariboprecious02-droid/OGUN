@@ -32,6 +32,8 @@ steps:
     id: 'build-admin'
     args:
       - 'build'
+      - '--build-arg'
+      - 'COMMIT_SHA=$COMMIT_SHA'
       - '-t'
       - 'gcr.io/$PROJECT_ID/ogun-admin:$COMMIT_SHA'
       - '-t'
