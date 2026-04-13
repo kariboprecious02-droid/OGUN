@@ -39,10 +39,13 @@ export function createApp(): express.Express {
   app.use(requestContextMiddleware);
   app.use(metricsMiddleware());
 
-  // Health
-  app.get('/healthz', (_req, res) => {
+  // Health — responds at both /_health and /healthz for compatibility
+  // with different deployment environments' startup probe configurations.
+  const healthHandler = (_req: express.Request, res: express.Response): void => {
     res.json({ status: 'ok', service: 'ogun', version: '4.1.1' });
-  });
+  };
+  app.get('/_health', healthHandler);
+  app.get('/healthz', healthHandler);
 
   // Prometheus scrape endpoint
   app.get('/metrics', (_req, res) => {
