@@ -17,8 +17,9 @@ export function Nav(): React.ReactElement {
         </Link>
         <NavLink href="/compliance">Compliance</NavLink>
         <NavLink href="/wallets">Wallets</NavLink>
-        <NavLink href="/collections">Collections</NavLink>
-        <NavLink href="/payouts">Payouts</NavLink>
+        <NavLink href="/admin/collections">Collections</NavLink>
+        <NavLink href="/admin/payouts">Payouts</NavLink>
+        <NavLink href="/admin/settlements">Settlements</NavLink>
         <div className="ml-auto">
           <form action={handleLogout}>
             <button type="submit" className="text-ogun-muted text-sm hover:text-ogun-text">
