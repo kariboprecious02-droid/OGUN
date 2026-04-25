@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
 import { getMerchantDetail, OgunApiError, centsToKes } from '@/lib/api';
 import { OnboardingChrome } from '../../_components/OnboardingChrome';
+import { DirtyFormGuard } from '@/components/DirtyFormGuard';
 import { isStepEditable } from '../../_lib/steps';
 import { updateProfileAction } from './actions';
 
@@ -43,6 +44,7 @@ export default async function ProfilePage({
   const ticket = mAny.expected_avg_ticket;
 
   return (
+    <DirtyFormGuard>
     <OnboardingChrome merchant={m} merchantId={id} currentStep="profile">
       <div className="space-y-6 pt-4">
         <header>
@@ -156,6 +158,7 @@ export default async function ProfilePage({
                 label="Expected monthly volume"
                 name="expected_monthly_volume_kes"
                 type="number"
+                min="0"
                 defaultValue={
                   typeof monthly === 'number' ? String(centsToKes(monthly)) : ''
                 }
@@ -166,6 +169,7 @@ export default async function ProfilePage({
                 label="Expected average ticket"
                 name="expected_avg_ticket_kes"
                 type="number"
+                min="0"
                 defaultValue={
                   typeof ticket === 'number' ? String(centsToKes(ticket)) : ''
                 }
@@ -232,6 +236,7 @@ export default async function ProfilePage({
         </form>
       </div>
     </OnboardingChrome>
+    </DirtyFormGuard>
   );
 }
 
@@ -269,6 +274,7 @@ function Field({
   type = 'text',
   defaultValue,
   disabled,
+  min,
   hint,
 }: {
   label: string;
@@ -276,6 +282,7 @@ function Field({
   type?: string;
   defaultValue?: string;
   disabled?: boolean;
+  min?: string;
   hint?: string;
 }): React.ReactElement {
   return (
@@ -289,6 +296,7 @@ function Field({
         type={type}
         defaultValue={defaultValue}
         disabled={disabled}
+        min={min}
         className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
       />
       {hint && <p className="text-xs text-ogun-muted mt-1">{hint}</p>}

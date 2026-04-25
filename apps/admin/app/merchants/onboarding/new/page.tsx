@@ -17,7 +17,7 @@ function num(v: FormDataEntryValue | null): number | undefined {
   const s = String(v ?? '').trim();
   if (!s) return undefined;
   const n = Number(s);
-  return Number.isFinite(n) && n >= 0 ? n : undefined;
+  return Number.isFinite(n) ? n : undefined;
 }
 
 function lines(v: FormDataEntryValue | null): string[] | undefined {
@@ -53,6 +53,13 @@ async function handleCreate(formData: FormData): Promise<void> {
 
   const monthlyKes = num(formData.get('expected_monthly_volume_kes'));
   const ticketKes = num(formData.get('expected_avg_ticket_kes'));
+
+  if (monthlyKes !== undefined && monthlyKes < 0) {
+    redirect(`/merchants/onboarding/new?err=${encodeURIComponent('Expected monthly volume cannot be negative.')}`);
+  }
+  if (ticketKes !== undefined && ticketKes < 0) {
+    redirect(`/merchants/onboarding/new?err=${encodeURIComponent('Expected average ticket cannot be negative.')}`);
+  }
 
   const input: CreateMerchantInput = {
     legal_name: legalName!,
@@ -169,6 +176,7 @@ export default async function OnboardingCreatePage({
                   label="Expected monthly volume"
                   name="expected_monthly_volume_kes"
                   type="number"
+                  min="0"
                   placeholder="1000000"
                   help="Gross processing volume per month, in KES"
                 />
@@ -176,6 +184,7 @@ export default async function OnboardingCreatePage({
                   label="Expected average ticket"
                   name="expected_avg_ticket_kes"
                   type="number"
+                  min="0"
                   placeholder="2500"
                   help="Average transaction size, in KES"
                 />
@@ -265,6 +274,7 @@ function Field({
   required,
   placeholder,
   maxLength,
+  min,
   help,
   defaultValue,
 }: {
@@ -274,6 +284,7 @@ function Field({
   required?: boolean;
   placeholder?: string;
   maxLength?: number;
+  min?: string;
   help?: string;
   defaultValue?: string;
 }): React.ReactElement {
@@ -289,6 +300,7 @@ function Field({
         required={required}
         placeholder={placeholder}
         maxLength={maxLength}
+        min={min}
         defaultValue={defaultValue}
         className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent outline-none text-sm"
       />

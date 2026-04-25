@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
 import { getMerchantDetail, getMerchantSettings, OgunApiError, centsToKes, type EffectiveSettings } from '@/lib/api';
 import { PanelChrome } from './_components/PanelChrome';
+import { DirtyFormGuard } from '@/components/DirtyFormGuard';
 import {
   panelSaveMerchantSettingsAction,
   panelCreateSubMerchantAction,
@@ -12,7 +13,7 @@ import {
   panelRotateWebhookSecretAction,
   panelDismissRotationFlashAction,
 } from './actions';
-import { Badge, formatIsoDate } from '@/components/Badge';
+import { Badge } from '@/components/Badge';
 
 type RotationFlash = {
   kind: 'secret' | 'webhook_secret';
@@ -82,6 +83,7 @@ export default async function MerchantPanelPage({
   }
 
   return (
+    <DirtyFormGuard>
     <PanelChrome merchant={detail.merchant} merchantId={id} currentTab="settings">
       {/* sub-tab strip */}
       <nav
@@ -131,6 +133,7 @@ export default async function MerchantPanelPage({
         <CredentialsTab merchantId={id} flash={rotationFlash} />
       )}
     </PanelChrome>
+    </DirtyFormGuard>
   );
 }
 
@@ -550,6 +553,7 @@ function NumberField({
         name={name}
         type="number"
         step={step}
+        min="0"
         defaultValue={defaultValue}
         className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border text-sm"
       />
@@ -590,5 +594,3 @@ function SelectField({
   );
 }
 
-// formatIsoDate import retained for use in upcoming sub-tabs
-void formatIsoDate;

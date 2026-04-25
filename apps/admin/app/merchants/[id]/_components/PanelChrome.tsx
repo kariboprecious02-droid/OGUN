@@ -30,7 +30,7 @@ export function PanelChrome({
   return (
     <div className="min-h-screen bg-ogun-bg text-ogun-text">
       <Nav />
-      <div className="bg-ogun-surface border-b border-ogun-border">
+      <header className="bg-ogun-surface border-b border-ogun-border">
         <div className="max-w-7xl mx-auto px-6 pt-5 pb-2 flex items-center gap-3 flex-wrap">
           <div>
             <h1 className="text-xl font-semibold">
@@ -68,7 +68,7 @@ export function PanelChrome({
             );
           })}
         </nav>
-      </div>
+      </header>
       <main className="max-w-7xl mx-auto px-6 py-6">{children}</main>
     </div>
   );

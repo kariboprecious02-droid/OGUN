@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
 import { getMerchantDetail, OgunApiError } from '@/lib/api';
 import { OnboardingChrome } from '../../_components/OnboardingChrome';
+import { DirtyFormGuard } from '@/components/DirtyFormGuard';
 import {
   saveMerchantSettingsAction,
   createSubMerchantAction,
@@ -47,6 +48,7 @@ export default async function SettingsPage({
   const m = detail.merchant;
 
   return (
+    <DirtyFormGuard>
     <OnboardingChrome merchant={m} merchantId={id} currentStep="settings">
       <div className="space-y-6 pt-4">
         <header>
@@ -250,6 +252,7 @@ export default async function SettingsPage({
         </div>
       </div>
     </OnboardingChrome>
+    </DirtyFormGuard>
   );
 }
 
@@ -306,6 +309,7 @@ function NumberField({
         name={name}
         type="number"
         step={step}
+        min="0"
         placeholder={placeholder}
         defaultValue={defaultValue}
         className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent outline-none text-sm"

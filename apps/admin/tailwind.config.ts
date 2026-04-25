@@ -11,7 +11,7 @@ const config: Config = {
           border: '#1f2430',
           text: '#e6e8ec',
           muted: '#8b90a0',
-          accent: '#e85d1b', // Ogun (fire, Yoruba)
+          accent: '#b44a14', // Ogun (fire, Yoruba) — darkened from #e85d1b for WCAG 4.5:1 w/ white
           success: '#3cb371',
           danger: '#e54c4c',
           warn: '#e5a53c',

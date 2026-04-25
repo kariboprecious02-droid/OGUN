@@ -17,7 +17,7 @@ export default function OnboardingMerchantNotFound(): React.ReactElement {
             Back to compliance
           </Link>
           <Link href="/merchants/onboarding/new" className="btn">
-            Start a new merchant
+            Create a new merchant
           </Link>
         </div>
       </div>
