@@ -60,7 +60,9 @@ export default async function SettingsPage({
 
         {ok && (
           <div className="panel-padded text-sm border border-emerald-700/50 bg-emerald-900/20 text-emerald-200">
-            Saved <span className="mono">{ok}</span> successfully.
+            {ok === 'settings' && 'Merchant settings saved.'}
+            {ok === 'sub-created' && 'Sub-merchant created.'}
+            {ok === 'sub-settings' && 'Sub-merchant settings saved.'}
           </div>
         )}
         {errMsg && (

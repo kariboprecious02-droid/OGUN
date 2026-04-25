@@ -123,7 +123,7 @@ export default async function ComplianceStepPage({
                 <dt className="text-xs text-ogun-muted">Confidence</dt>
                 <dd>
                   {aiReview.confidence_score != null
-                    ? `${Math.round(aiReview.confidence_score * 100)}%`
+                    ? `${Math.round(aiReview.confidence_score)}%`
                     : '—'}
                 </dd>
               </div>

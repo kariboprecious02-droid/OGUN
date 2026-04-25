@@ -91,6 +91,10 @@ export type MerchantDetail = {
     contact_phone: string | null;
     business_category: string | null;
     settlement_currency: string;
+    expected_monthly_volume: number | null;
+    expected_avg_ticket: number | null;
+    business_address: Record<string, string> | null;
+    website_url: string | null;
   };
   sub_merchants: Array<{
     id: string;
@@ -512,6 +516,12 @@ export async function updateMerchantProfile(
     method: 'PATCH',
     body: JSON.stringify(body),
   });
+}
+
+export async function getMerchantSettings(
+  merchantId: string,
+): Promise<EffectiveSettings> {
+  return request<EffectiveSettings>(`/admin/merchants/${merchantId}/settings`);
 }
 
 export async function patchMerchantSettings(

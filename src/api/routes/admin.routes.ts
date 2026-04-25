@@ -315,10 +315,19 @@ router.get('/admin/merchants/:id', async (req, res, next) => {
         [merchant.id],
       ),
     ]);
+    // Normalize bigint columns to numbers for JSON safety (pg driver
+    // returns bigint as string).
+    const normalizedMerchant = {
+      ...merchant,
+      expected_monthly_volume: merchant.expected_monthly_volume != null
+        ? Number(merchant.expected_monthly_volume) : null,
+      expected_avg_ticket: merchant.expected_avg_ticket != null
+        ? Number(merchant.expected_avg_ticket) : null,
+    };
     res.json(
       success(
         {
-          merchant,
+          merchant: normalizedMerchant,
           sub_merchants: subs.rows,
           documents: docs.rows,
           rule_results: rules.rows,
@@ -777,6 +786,19 @@ const adminCreateSubMerchantBody = z.object({
       phone: z.string().optional(),
     })
     .optional(),
+});
+
+/**
+ * GET /v1/admin/merchants/:id/settings — read effective settings.
+ */
+router.get('/admin/merchants/:id/settings', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const effective = await resolveEffectiveSettings(req.params.id, null);
+    res.json(success(effective, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
 });
 
 /**

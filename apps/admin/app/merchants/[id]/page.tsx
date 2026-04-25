@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
-import { getMerchantDetail, OgunApiError, centsToKes } from '@/lib/api';
+import { getMerchantDetail, getMerchantSettings, OgunApiError, centsToKes, type EffectiveSettings } from '@/lib/api';
 import { PanelChrome } from './_components/PanelChrome';
 import {
   panelSaveMerchantSettingsAction,
@@ -45,8 +45,12 @@ export default async function MerchantPanelPage({
   const errMsg = typeof sp.err === 'string' ? sp.err : null;
 
   let detail;
+  let settings: EffectiveSettings | null = null;
   try {
-    detail = await getMerchantDetail(id);
+    [detail, settings] = await Promise.all([
+      getMerchantDetail(id),
+      getMerchantSettings(id).catch(() => null),
+    ]);
   } catch (err) {
     if (err instanceof OgunApiError && err.status === 404) notFound();
     throw err;
@@ -75,7 +79,10 @@ export default async function MerchantPanelPage({
 
       {ok && (
         <div className="panel-padded mb-4 text-sm border border-emerald-700/50 bg-emerald-900/20 text-emerald-200">
-          Saved <span className="mono">{ok}</span>.
+          {ok === 'settings' && 'Merchant settings saved.'}
+            {ok === 'sub-created' && 'Sub-merchant created.'}
+            {ok === 'sub-settings' && 'Sub-merchant settings saved.'}
+            {ok === 'suspended' && 'Merchant suspended.'}
         </div>
       )}
       {errMsg && (
@@ -85,7 +92,7 @@ export default async function MerchantPanelPage({
       )}
 
       {subTab === 'profile' && <ProfileTab merchant={detail.merchant} />}
-      {subTab === 'accounts' && <AccountsTab merchantId={id} />}
+      {subTab === 'accounts' && <AccountsTab merchantId={id} settings={settings} />}
       {subTab === 'sub_merchants' && (
         <SubMerchantsTab subMerchants={detail.sub_merchants} merchantId={id} />
       )}
@@ -184,7 +191,15 @@ function ProfileTab({
   );
 }
 
-function AccountsTab({ merchantId }: { merchantId: string }): React.ReactElement {
+function AccountsTab({
+  merchantId,
+  settings,
+}: {
+  merchantId: string;
+  settings: EffectiveSettings | null;
+}): React.ReactElement {
+  const s = settings ?? {};
+  const enabledSet = new Set(s.enabled_methods ?? []);
   return (
     <section className="panel-padded">
       <h3 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
@@ -197,25 +212,42 @@ function AccountsTab({ merchantId }: { merchantId: string }): React.ReactElement
       <form action={panelSaveMerchantSettingsAction} className="space-y-4">
         <input type="hidden" name="merchant_id" value={merchantId} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <NumberField label="Collection fee %" name="collection_fee_pct" step="0.01" />
+          <NumberField
+            label="Collection fee %"
+            name="collection_fee_pct"
+            step="0.01"
+            defaultValue={s.collection_fee_pct != null ? String(s.collection_fee_pct) : ''}
+          />
           <SelectField
             label="Collection fee model"
             name="collection_fee_model"
+            defaultValue={s.collection_fee_model ?? ''}
             options={[
               { value: 'merchant_covers', label: 'Merchant covers' },
               { value: 'payer_covers', label: 'Payer covers' },
             ]}
           />
-          <NumberField label="Payout fee %" name="payout_fee_pct" step="0.01" />
+          <NumberField
+            label="Payout fee %"
+            name="payout_fee_pct"
+            step="0.01"
+            defaultValue={s.payout_fee_pct != null ? String(s.payout_fee_pct) : ''}
+          />
           <SelectField
             label="Payout fee model"
             name="payout_fee_model"
+            defaultValue={s.payout_fee_model ?? ''}
             options={[
               { value: 'merchant_covers', label: 'Merchant covers' },
               { value: 'recipient_covers', label: 'Recipient covers' },
             ]}
           />
-          <NumberField label="Settlement fee %" name="settlement_fee_pct" step="0.01" />
+          <NumberField
+            label="Settlement fee %"
+            name="settlement_fee_pct"
+            step="0.01"
+            defaultValue={s.settlement_fee_pct != null ? String(s.settlement_fee_pct) : ''}
+          />
         </div>
         <div>
           <div className="text-sm text-ogun-muted mb-2">Enabled payment methods</div>
@@ -225,7 +257,11 @@ function AccountsTab({ merchantId }: { merchantId: string }): React.ReactElement
                 key={m.key}
                 className="flex items-center gap-2 px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border text-sm"
               >
-                <input type="checkbox" name={`method_${m.key}`} />
+                <input
+                  type="checkbox"
+                  name={`method_${m.key}`}
+                  defaultChecked={enabledSet.has(m.key)}
+                />
                 {m.label}
               </label>
             ))}
@@ -239,6 +275,7 @@ function AccountsTab({ merchantId }: { merchantId: string }): React.ReactElement
             id="notification_emails"
             name="notification_emails"
             rows={2}
+            defaultValue={(s.notification_emails ?? []).join(', ')}
             placeholder="ops@example.com, finance@example.com"
             className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border text-sm"
           />
@@ -391,10 +428,12 @@ function NumberField({
   label,
   name,
   step,
+  defaultValue,
 }: {
   label: string;
   name: string;
   step?: string;
+  defaultValue?: string;
 }): React.ReactElement {
   return (
     <div>
@@ -406,6 +445,7 @@ function NumberField({
         name={name}
         type="number"
         step={step}
+        defaultValue={defaultValue}
         className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border text-sm"
       />
     </div>
@@ -416,10 +456,12 @@ function SelectField({
   label,
   name,
   options,
+  defaultValue,
 }: {
   label: string;
   name: string;
   options: Array<{ value: string; label: string }>;
+  defaultValue?: string;
 }): React.ReactElement {
   return (
     <div>
@@ -429,6 +471,7 @@ function SelectField({
       <select
         id={name}
         name={name}
+        defaultValue={defaultValue}
         className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border text-sm"
       >
         <option value="">—</option>

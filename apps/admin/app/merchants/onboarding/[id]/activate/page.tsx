@@ -74,16 +74,28 @@ export default async function ActivateStepPage({
               These will not be shown again. Hand them to the merchant via a
               secure channel; rotate from the merchant panel if compromised.
             </p>
-            <div className="space-y-3">
-              {Object.entries(creds).map(([k, v]) => (
-                <div key={k} className="flex flex-col gap-1">
-                  <span className="text-xs text-ogun-muted uppercase">{k}</span>
-                  <code className="mono text-xs px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border break-all">
-                    {v}
-                  </code>
+            {(['sandbox', 'live'] as const).map((env) => {
+              const envCreds = creds[env];
+              if (!envCreds || typeof envCreds !== 'object') return null;
+              const entries = envCreds as Record<string, string>;
+              return (
+                <div key={env} className="mb-6">
+                  <h4 className="text-sm font-semibold text-ogun-muted mb-2 uppercase">
+                    {env} credentials
+                  </h4>
+                  <div className="space-y-3">
+                    {Object.entries(entries).map(([k, v]) => (
+                      <div key={k} className="flex flex-col gap-1">
+                        <span className="text-xs text-ogun-muted uppercase">{k}</span>
+                        <code className="mono text-xs px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border break-all">
+                          {String(v)}
+                        </code>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </section>
         )}
 

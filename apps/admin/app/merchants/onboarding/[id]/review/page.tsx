@@ -65,7 +65,7 @@ export default async function ReviewStepPage({
               <Badge status={aiReview.decision} />
               <span className="text-sm text-ogun-muted">
                 {aiReview.confidence_score != null
-                  ? `${Math.round(aiReview.confidence_score * 100)}% confidence`
+                  ? `${Math.round(aiReview.confidence_score)}% confidence`
                   : 'no confidence reported'}
               </span>
             </div>
