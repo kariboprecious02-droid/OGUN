@@ -34,7 +34,7 @@ export default async function ComplianceListPage({
       subtitle={`${result.total} merchant${result.total === 1 ? '' : 's'} in view`}
     >
       <div className="flex items-center justify-end mb-3">
-        <Link href="/compliance/new" className="btn btn-primary">
+        <Link href="/merchants/onboarding/new" className="btn btn-primary">
           + Create merchant
         </Link>
       </div>

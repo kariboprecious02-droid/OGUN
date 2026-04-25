@@ -7,6 +7,7 @@
  */
 
 export type WizardStepKey =
+  | 'create'
   | 'people-documents'
   | 'profile'
   | 'settings'
@@ -20,6 +21,7 @@ export const STEPS: ReadonlyArray<{
   label: string;
   verb: string;
 }> = [
+  { key: 'create', ordinal: 0, label: 'Create', verb: 'Identify' },
   { key: 'people-documents', ordinal: 1, label: 'People & Documents', verb: 'Upload' },
   { key: 'profile', ordinal: 2, label: 'Profile', verb: 'Verify' },
   { key: 'settings', ordinal: 3, label: 'Settings', verb: 'Configure' },
