@@ -53,9 +53,9 @@ export async function panelSaveMerchantSettingsAction(formData: FormData): Promi
   const settlement_fee_pct = num(formData.get('settlement_fee_pct'));
 
   const negErr = rejectNegatives([
-    { name: 'Collection fee %', value: collection_fee_pct },
-    { name: 'Payout fee %', value: payout_fee_pct },
-    { name: 'Settlement fee %', value: settlement_fee_pct },
+    { name: 'Collection fee percentage', value: collection_fee_pct },
+    { name: 'Payout fee percentage', value: payout_fee_pct },
+    { name: 'Settlement fee percentage', value: settlement_fee_pct },
   ]);
   if (negErr) {
     redirect(`/merchants/${merchantId}?tab=accounts&err=${encodeURIComponent(negErr)}`);
@@ -97,8 +97,8 @@ export async function panelSaveSubMerchantSettingsAction(
   const payout_fee_pct = num(formData.get('payout_fee_pct'));
 
   const negErr = rejectNegatives([
-    { name: 'Collection fee %', value: collection_fee_pct },
-    { name: 'Payout fee %', value: payout_fee_pct },
+    { name: 'Collection fee percentage', value: collection_fee_pct },
+    { name: 'Payout fee percentage', value: payout_fee_pct },
   ]);
   if (negErr) {
     redirect(`/merchants/${merchantId}?tab=sub_merchants&err=${encodeURIComponent(negErr)}`);

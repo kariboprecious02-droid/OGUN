@@ -120,7 +120,7 @@ export default async function MerchantPanelPage({
       )}
       {errMsg && (
         <div className="panel-padded mb-4 text-sm border border-rose-700/50 bg-rose-900/20 text-rose-200">
-          {decodeURIComponent(errMsg)}
+          {errMsg}
         </div>
       )}
 

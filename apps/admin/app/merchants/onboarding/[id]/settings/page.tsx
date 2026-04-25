@@ -69,7 +69,7 @@ export default async function SettingsPage({
         )}
         {errMsg && (
           <div className="panel-padded text-sm border border-rose-700/50 bg-rose-900/20 text-rose-200">
-            {decodeURIComponent(errMsg)}
+            {errMsg}
           </div>
         )}
 

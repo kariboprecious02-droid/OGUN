@@ -65,7 +65,7 @@ export default async function PeopleDocumentsPage({
         )}
         {errMsg && (
           <div className="panel-padded text-sm border border-rose-700/50 bg-rose-900/20 text-rose-200">
-            Upload failed: <span className="mono">{decodeURIComponent(errMsg)}</span>
+            Upload failed: <span className="mono">{errMsg}</span>
           </div>
         )}
 

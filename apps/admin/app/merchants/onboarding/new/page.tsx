@@ -116,7 +116,7 @@ export default async function OnboardingCreatePage({
             <div className="text-ogun-danger text-sm mb-4">
               {err === 'missing'
                 ? 'Legal name and trading name are required (minimum 2 characters each).'
-                : `Failed to create merchant: ${decodeURIComponent(err)}`}
+                : `Failed to create merchant: ${err}`}
             </div>
           )}
 

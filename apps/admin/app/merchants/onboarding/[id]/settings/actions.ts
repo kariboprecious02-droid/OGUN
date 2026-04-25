@@ -48,9 +48,9 @@ export async function saveMerchantSettingsAction(formData: FormData): Promise<vo
   const settlement_fee_pct = num(formData.get('settlement_fee_pct'));
 
   const negErr = rejectNegatives([
-    { name: 'Collection fee %', value: collection_fee_pct },
-    { name: 'Payout fee %', value: payout_fee_pct },
-    { name: 'Settlement fee %', value: settlement_fee_pct },
+    { name: 'Collection fee percentage', value: collection_fee_pct },
+    { name: 'Payout fee percentage', value: payout_fee_pct },
+    { name: 'Settlement fee percentage', value: settlement_fee_pct },
   ]);
   if (negErr) {
     redirect(`/merchants/onboarding/${merchantId}/settings?err=${encodeURIComponent(negErr)}`);
@@ -132,8 +132,8 @@ export async function saveSubMerchantSettingsAction(formData: FormData): Promise
   const payout_fee_pct = num(formData.get('payout_fee_pct'));
 
   const negErr = rejectNegatives([
-    { name: 'Collection fee %', value: collection_fee_pct },
-    { name: 'Payout fee %', value: payout_fee_pct },
+    { name: 'Collection fee percentage', value: collection_fee_pct },
+    { name: 'Payout fee percentage', value: payout_fee_pct },
   ]);
   if (negErr) {
     redirect(`/merchants/onboarding/${merchantId}/settings?err=${encodeURIComponent(negErr)}`);
