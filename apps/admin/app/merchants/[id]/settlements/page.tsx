@@ -66,7 +66,8 @@ export default async function MerchantSettlementsTab({
             {result.items.length === 0 && (
               <tr>
                 <td colSpan={8} className="text-center text-ogun-muted py-8">
-                  No settlements yet.
+                  No settlements yet — settlements run on the merchant's
+                  configured cadence (daily / weekly / monthly).
                 </td>
               </tr>
             )}

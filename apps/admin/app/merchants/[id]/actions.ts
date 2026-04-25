@@ -1,5 +1,6 @@
 'use server';
 
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import {
@@ -7,6 +8,9 @@ import {
   patchSubMerchantSettings,
   createSubMerchantAsAdmin,
   suspendMerchant,
+  rotateMerchantSecretKey,
+  rotateMerchantWebhookSecret,
+  type RotationEnv,
   type SettingsBody,
 } from '@/lib/api';
 
@@ -142,4 +146,70 @@ export async function panelSuspendMerchantAction(formData: FormData): Promise<vo
   }
   revalidatePath(`/merchants/${merchantId}`);
   redirect(`/merchants/${merchantId}?tab=profile&ok=suspended`);
+}
+
+const ROTATION_FLASH_TTL_S = 600;
+
+function rotationEnv(v: FormDataEntryValue | null): RotationEnv {
+  return String(v ?? 'sandbox') === 'live' ? 'live' : 'sandbox';
+}
+
+async function setRotationFlash(
+  merchantId: string,
+  payload: { kind: 'secret' | 'webhook_secret'; environment: RotationEnv; value: string },
+): Promise<void> {
+  const jar = await cookies();
+  jar.set(`rotated_${merchantId}`, JSON.stringify(payload), {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: `/merchants/${merchantId}`,
+    maxAge: ROTATION_FLASH_TTL_S,
+  });
+}
+
+export async function panelRotateSecretKeyAction(formData: FormData): Promise<void> {
+  const merchantId = String(formData.get('merchant_id') ?? '');
+  if (!merchantId) redirect('/compliance');
+  const env = rotationEnv(formData.get('environment'));
+  try {
+    const result = await rotateMerchantSecretKey(merchantId, env);
+    await setRotationFlash(merchantId, {
+      kind: 'secret',
+      environment: env,
+      value: result.secret_key,
+    });
+  } catch (err) {
+    const msg = encodeURIComponent(err instanceof Error ? err.message : 'rotate failed');
+    redirect(`/merchants/${merchantId}?tab=credentials&err=${msg}`);
+  }
+  revalidatePath(`/merchants/${merchantId}`);
+  redirect(`/merchants/${merchantId}?tab=credentials&ok=secret-rotated`);
+}
+
+export async function panelRotateWebhookSecretAction(formData: FormData): Promise<void> {
+  const merchantId = String(formData.get('merchant_id') ?? '');
+  if (!merchantId) redirect('/compliance');
+  const env = rotationEnv(formData.get('environment'));
+  try {
+    const result = await rotateMerchantWebhookSecret(merchantId, env);
+    await setRotationFlash(merchantId, {
+      kind: 'webhook_secret',
+      environment: env,
+      value: result.webhook_secret,
+    });
+  } catch (err) {
+    const msg = encodeURIComponent(err instanceof Error ? err.message : 'rotate failed');
+    redirect(`/merchants/${merchantId}?tab=credentials&err=${msg}`);
+  }
+  revalidatePath(`/merchants/${merchantId}`);
+  redirect(`/merchants/${merchantId}?tab=credentials&ok=webhook-rotated`);
+}
+
+export async function panelDismissRotationFlashAction(formData: FormData): Promise<void> {
+  const merchantId = String(formData.get('merchant_id') ?? '');
+  if (!merchantId) redirect('/compliance');
+  const jar = await cookies();
+  jar.delete(`rotated_${merchantId}`);
+  redirect(`/merchants/${merchantId}?tab=credentials`);
 }

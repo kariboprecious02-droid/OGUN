@@ -60,7 +60,8 @@ export default async function MerchantCollectionsTab({
             {result.items.length === 0 && (
               <tr>
                 <td colSpan={6} className="text-center text-ogun-muted py-8">
-                  No collections yet.
+                  No collections yet — once the merchant starts processing,
+                  transactions appear here within ~30 seconds.
                 </td>
               </tr>
             )}

@@ -1,3 +1,4 @@
+import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
@@ -7,8 +8,17 @@ import {
   panelSaveMerchantSettingsAction,
   panelCreateSubMerchantAction,
   panelSuspendMerchantAction,
+  panelRotateSecretKeyAction,
+  panelRotateWebhookSecretAction,
+  panelDismissRotationFlashAction,
 } from './actions';
 import { Badge, formatIsoDate } from '@/components/Badge';
+
+type RotationFlash = {
+  kind: 'secret' | 'webhook_secret';
+  environment: 'sandbox' | 'live';
+  value: string;
+};
 
 type SettingsSubTab = 'profile' | 'accounts' | 'sub_merchants' | 'credentials';
 
@@ -56,10 +66,28 @@ export default async function MerchantPanelPage({
     throw err;
   }
 
+  let rotationFlash: RotationFlash | null = null;
+  if (subTab === 'credentials') {
+    const flashCookie = (await cookies()).get(`rotated_${id}`)?.value;
+    if (flashCookie) {
+      try {
+        const parsed = JSON.parse(flashCookie) as RotationFlash;
+        if (parsed.kind && parsed.environment && parsed.value) {
+          rotationFlash = parsed;
+        }
+      } catch {
+        rotationFlash = null;
+      }
+    }
+  }
+
   return (
     <PanelChrome merchant={detail.merchant} merchantId={id} currentTab="settings">
       {/* sub-tab strip */}
-      <div className="mb-6 flex items-center gap-2 overflow-x-auto border-b border-ogun-border pb-3">
+      <nav
+        aria-label="Settings sub-sections"
+        className="mb-6 flex items-center gap-2 overflow-x-auto border-b border-ogun-border pb-3"
+      >
         {SUB_TABS.map((s) => {
           const active = s.key === subTab;
           const cls = active
@@ -69,20 +97,23 @@ export default async function MerchantPanelPage({
             <Link
               key={s.key}
               href={`/merchants/${id}?tab=${s.key}`}
+              aria-current={active ? 'page' : undefined}
               className={`px-3 py-1.5 text-sm whitespace-nowrap no-underline ${cls}`}
             >
               {s.label}
             </Link>
           );
         })}
-      </div>
+      </nav>
 
       {ok && (
         <div className="panel-padded mb-4 text-sm border border-emerald-700/50 bg-emerald-900/20 text-emerald-200">
           {ok === 'settings' && 'Merchant settings saved.'}
-            {ok === 'sub-created' && 'Sub-merchant created.'}
-            {ok === 'sub-settings' && 'Sub-merchant settings saved.'}
-            {ok === 'suspended' && 'Merchant suspended.'}
+          {ok === 'sub-created' && 'Sub-merchant created.'}
+          {ok === 'sub-settings' && 'Sub-merchant settings saved.'}
+          {ok === 'suspended' && 'Merchant suspended.'}
+          {ok === 'secret-rotated' && 'Secret key rotated. Copy it now — it will not be shown again.'}
+          {ok === 'webhook-rotated' && 'Webhook secret rotated. Copy it now — it will not be shown again.'}
         </div>
       )}
       {errMsg && (
@@ -96,7 +127,9 @@ export default async function MerchantPanelPage({
       {subTab === 'sub_merchants' && (
         <SubMerchantsTab subMerchants={detail.sub_merchants} merchantId={id} />
       )}
-      {subTab === 'credentials' && <CredentialsTab />}
+      {subTab === 'credentials' && (
+        <CredentialsTab merchantId={id} flash={rotationFlash} />
+      )}
     </PanelChrome>
   );
 }
@@ -112,9 +145,9 @@ function ProfileTab({
   return (
     <div className="space-y-6">
       <section className="panel-padded">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
           Identity
-        </h3>
+        </h2>
         <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">
           <Kv k="Legal name" v={merchant.legal_name} />
           <Kv k="Trading name" v={merchant.trading_name} />
@@ -128,9 +161,9 @@ function ProfileTab({
       </section>
 
       <section className="panel-padded">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
           Volume expectations
-        </h3>
+        </h2>
         <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">
           <Kv
             k="Expected monthly volume"
@@ -144,9 +177,9 @@ function ProfileTab({
       </section>
 
       <section className="panel-padded">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
           Primary contact
-        </h3>
+        </h2>
         <dl className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
           <Kv k="Name" v={merchant.contact_name} />
           <Kv k="Email" v={merchant.contact_email} />
@@ -155,9 +188,9 @@ function ProfileTab({
       </section>
 
       <section className="panel-padded border border-rose-700/40">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-300 mb-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-rose-300 mb-2">
           Suspend merchant
-        </h3>
+        </h2>
         <p className="text-xs text-ogun-muted mb-4">
           Suspended merchants cannot create new collections or payouts. Their
           existing balances remain. Reversible — admins can reinstate later.
@@ -202,9 +235,9 @@ function AccountsTab({
   const enabledSet = new Set(s.enabled_methods ?? []);
   return (
     <section className="panel-padded">
-      <h3 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
         Fees, methods & notifications
-      </h3>
+      </h2>
       <p className="text-xs text-ogun-muted mb-4">
         Merchant-level settings. Sub-merchants may override these in their own
         tab.
@@ -300,9 +333,9 @@ function SubMerchantsTab({
   return (
     <div className="space-y-6">
       <section className="panel-padded">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
           Sub-merchants ({subMerchants.length})
-        </h3>
+        </h2>
         {subMerchants.length === 0 ? (
           <p className="text-sm text-ogun-muted">No sub-merchants.</p>
         ) : (
@@ -325,9 +358,9 @@ function SubMerchantsTab({
       </section>
 
       <section className="panel-padded">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
           Add sub-merchant
-        </h3>
+        </h2>
         <form action={panelCreateSubMerchantAction} className="space-y-4">
           <input type="hidden" name="merchant_id" value={merchantId} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -358,23 +391,95 @@ function SubMerchantsTab({
   );
 }
 
-function CredentialsTab(): React.ReactElement {
+function CredentialsTab({
+  merchantId,
+  flash,
+}: {
+  merchantId: string;
+  flash: RotationFlash | null;
+}): React.ReactElement {
   return (
-    <section className="panel-padded">
-      <h3 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
-        API credentials
-      </h3>
-      <p className="text-sm text-ogun-muted">
-        Credentials are issued once at activation and not retrievable later.
-        Use the rotate endpoints to issue new keys (which invalidates the
-        previous ones).
-      </p>
-      <p className="text-xs text-ogun-muted mt-3">
-        Rotation UI is not yet wired here — the merchant can rotate from
-        their own dashboard via{' '}
-        <span className="mono">POST /v1/merchants/:id/api-keys/rotate</span>.
-      </p>
-    </section>
+    <div className="space-y-6">
+      {flash && (
+        <section className="panel-padded border border-amber-700/50 bg-amber-900/20">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-200 mb-2">
+            New {flash.kind === 'secret' ? 'secret key' : 'webhook secret'} —{' '}
+            {flash.environment}
+          </h2>
+          <p className="text-xs text-amber-100/80 mb-3">
+            Copy this value now. It is shown only once and cannot be retrieved
+            later. The previous {flash.kind === 'secret' ? 'secret key' : 'webhook secret'} for the {flash.environment} environment is now invalid.
+          </p>
+          <pre className="mono text-xs bg-ogun-bg border border-ogun-border rounded-md p-3 overflow-x-auto whitespace-pre-wrap break-all">
+            {flash.value}
+          </pre>
+          <form action={panelDismissRotationFlashAction} className="mt-3">
+            <input type="hidden" name="merchant_id" value={merchantId} />
+            <button type="submit" className="btn">
+              I have copied this value — dismiss
+            </button>
+          </form>
+        </section>
+      )}
+
+      <section className="panel-padded">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+          API credentials
+        </h2>
+        <p className="text-sm text-ogun-muted mb-2">
+          Credentials are issued once at activation and not retrievable later.
+          Rotation issues a new key for the chosen environment and immediately
+          invalidates the previous one.
+        </p>
+        <p className="text-xs text-ogun-muted">
+          Sandbox keys are safe for staging tests; live rotations affect
+          production traffic — coordinate with the merchant before rotating
+          live.
+        </p>
+      </section>
+
+      <section className="panel-padded">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+          Rotate secret key
+        </h2>
+        <form action={panelRotateSecretKeyAction} className="flex items-end gap-3 flex-wrap">
+          <input type="hidden" name="merchant_id" value={merchantId} />
+          <SelectField
+            label="Environment"
+            name="environment"
+            defaultValue="sandbox"
+            options={[
+              { value: 'sandbox', label: 'sandbox' },
+              { value: 'live', label: 'live' },
+            ]}
+          />
+          <button type="submit" className="btn">
+            Rotate secret key
+          </button>
+        </form>
+      </section>
+
+      <section className="panel-padded">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+          Rotate webhook secret
+        </h2>
+        <form action={panelRotateWebhookSecretAction} className="flex items-end gap-3 flex-wrap">
+          <input type="hidden" name="merchant_id" value={merchantId} />
+          <SelectField
+            label="Environment"
+            name="environment"
+            defaultValue="sandbox"
+            options={[
+              { value: 'sandbox', label: 'sandbox' },
+              { value: 'live', label: 'live' },
+            ]}
+          />
+          <button type="submit" className="btn">
+            Rotate webhook secret
+          </button>
+        </form>
+      </section>
+    </div>
   );
 }
 

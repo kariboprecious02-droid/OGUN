@@ -38,11 +38,15 @@ export default async function AdminSettlementsDashboard(): Promise<React.ReactEl
       title="Settlements — admin overview"
       subtitle="Cross-merchant settlement gross and net totals."
     >
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
         <Kpi
           label="Gross settled"
           value={`KES ${(rollup.gross_cents / 100).toLocaleString()}`}
           spark={buckets}
+        />
+        <Kpi
+          label="Settlement fee"
+          value={`KES ${(rollup.settlement_fee_cents / 100).toLocaleString()}`}
         />
         <Kpi
           label="Net settled"
@@ -61,6 +65,7 @@ export default async function AdminSettlementsDashboard(): Promise<React.ReactEl
             <tr>
               <th>Merchant</th>
               <th>Gross</th>
+              <th>Settlement fee</th>
               <th>Net</th>
               <th>Count</th>
               <th />
@@ -69,8 +74,9 @@ export default async function AdminSettlementsDashboard(): Promise<React.ReactEl
           <tbody>
             {perMerchant.length === 0 && (
               <tr>
-                <td colSpan={5} className="text-center text-ogun-muted py-8">
-                  No settlements yet.
+                <td colSpan={6} className="text-center text-ogun-muted py-8">
+                  No settlements yet — once merchants settle, portfolio totals
+                  appear here.
                 </td>
               </tr>
             )}
@@ -86,6 +92,7 @@ export default async function AdminSettlementsDashboard(): Promise<React.ReactEl
                   <div className="text-xs text-ogun-muted mono">{m.id}</div>
                 </td>
                 <td>KES {(m.gross_cents / 100).toLocaleString()}</td>
+                <td>KES {(m.settlement_fee_cents / 100).toLocaleString()}</td>
                 <td>KES {(m.net_cents / 100).toLocaleString()}</td>
                 <td>{m.count}</td>
                 <td className="text-right">

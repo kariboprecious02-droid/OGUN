@@ -18,8 +18,11 @@ export function JourneyBar({
   currentStep: WizardStepKey;
 }): React.ReactElement {
   return (
-    <nav className="bg-ogun-surface border-b border-ogun-border">
-      <div className="max-w-7xl mx-auto px-6 py-3 flex items-center gap-2 overflow-x-auto">
+    <nav
+      aria-label="Onboarding wizard steps"
+      className="bg-ogun-surface border-b border-ogun-border"
+    >
+      <ol className="max-w-7xl mx-auto px-6 py-3 flex items-center gap-2 overflow-x-auto list-none">
         {STEPS.map((s) => {
           const active = s.key === currentStep;
           const clickable = merchantId !== null && s.key !== 'create';
@@ -36,25 +39,30 @@ export function JourneyBar({
           );
           if (!clickable) {
             return (
-              <span
-                key={s.key}
-                className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap ${cls}`}
-              >
-                {content}
-              </span>
+              <li key={s.key}>
+                <span
+                  aria-current={active ? 'step' : undefined}
+                  aria-disabled="true"
+                  className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap inline-block ${cls}`}
+                >
+                  {content}
+                </span>
+              </li>
             );
           }
           return (
-            <Link
-              key={s.key}
-              href={`/merchants/onboarding/${merchantId}/${s.key}`}
-              className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap no-underline ${cls}`}
-            >
-              {content}
-            </Link>
+            <li key={s.key}>
+              <Link
+                href={`/merchants/onboarding/${merchantId}/${s.key}`}
+                aria-current={active ? 'step' : undefined}
+                className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap no-underline inline-block ${cls}`}
+              >
+                {content}
+              </Link>
+            </li>
           );
         })}
-      </div>
+      </ol>
     </nav>
   );
 }

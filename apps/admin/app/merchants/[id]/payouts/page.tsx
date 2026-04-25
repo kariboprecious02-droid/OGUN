@@ -59,7 +59,8 @@ export default async function MerchantPayoutsTab({
             {result.items.length === 0 && (
               <tr>
                 <td colSpan={7} className="text-center text-ogun-muted py-8">
-                  No payouts yet.
+                  No payouts yet — payouts appear here once the merchant
+                  initiates a disbursement.
                 </td>
               </tr>
             )}

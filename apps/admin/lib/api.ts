@@ -576,6 +576,32 @@ export async function issueCredentials(
   });
 }
 
+export type RotationEnv = 'sandbox' | 'live';
+
+export async function rotateMerchantSecretKey(
+  merchantId: string,
+  environment: RotationEnv,
+): Promise<{ key_type: 'secret'; environment: RotationEnv; secret_key: string }> {
+  return request(`/admin/merchants/${merchantId}/api-keys/rotate`, {
+    method: 'POST',
+    body: JSON.stringify({ environment }),
+  });
+}
+
+export async function rotateMerchantWebhookSecret(
+  merchantId: string,
+  environment: RotationEnv,
+): Promise<{
+  key_type: 'webhook_secret';
+  environment: RotationEnv;
+  webhook_secret: string;
+}> {
+  return request(`/admin/merchants/${merchantId}/webhook-secret/rotate`, {
+    method: 'POST',
+    body: JSON.stringify({ environment }),
+  });
+}
+
 /* ============================================================================
  * Money helpers — every amount crossing this api.ts boundary goes through
  * one of these two. Component code only ever sees KES.

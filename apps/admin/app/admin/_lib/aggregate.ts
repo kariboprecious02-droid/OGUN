@@ -119,12 +119,18 @@ export function rollupPayouts(items: PayoutSummary[]): PayoutsRollup {
 export type SettlementsRollup = {
   gross_cents: number;
   net_cents: number;
+  settlement_fee_cents: number;
   count: number;
   settled_count: number;
   scheduled_count: number;
   per_merchant: Map<
     string,
-    { gross_cents: number; net_cents: number; count: number }
+    {
+      gross_cents: number;
+      net_cents: number;
+      settlement_fee_cents: number;
+      count: number;
+    }
   >;
 };
 
@@ -132,6 +138,7 @@ export function rollupSettlements(items: SettlementSummary[]): SettlementsRollup
   const acc: SettlementsRollup = {
     gross_cents: 0,
     net_cents: 0,
+    settlement_fee_cents: 0,
     count: items.length,
     settled_count: 0,
     scheduled_count: 0,
@@ -140,17 +147,21 @@ export function rollupSettlements(items: SettlementSummary[]): SettlementsRollup
   for (const s of items) {
     const gross = Number(s.gross_amount ?? 0);
     const net = Number(s.net_amount ?? 0);
+    const settlementFee = Number(s.settlement_fee ?? 0);
     acc.gross_cents += gross;
     acc.net_cents += net;
+    acc.settlement_fee_cents += settlementFee;
     if (s.status === 'settled') acc.settled_count += 1;
     if (s.status === 'scheduled') acc.scheduled_count += 1;
     const m = acc.per_merchant.get(s.merchant_id) ?? {
       gross_cents: 0,
       net_cents: 0,
+      settlement_fee_cents: 0,
       count: 0,
     };
     m.gross_cents += gross;
     m.net_cents += net;
+    m.settlement_fee_cents += settlementFee;
     m.count += 1;
     acc.per_merchant.set(s.merchant_id, m);
   }

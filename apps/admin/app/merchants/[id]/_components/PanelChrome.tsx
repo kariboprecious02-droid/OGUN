@@ -33,9 +33,9 @@ export function PanelChrome({
       <div className="bg-ogun-surface border-b border-ogun-border">
         <div className="max-w-7xl mx-auto px-6 pt-5 pb-2 flex items-center gap-3 flex-wrap">
           <div>
-            <div className="text-xl font-semibold">
+            <h1 className="text-xl font-semibold">
               {merchant.legal_name || merchant.trading_name}
-            </div>
+            </h1>
             <div className="text-xs text-ogun-muted mono">{merchant.id}</div>
           </div>
           <Badge status={merchant.status} />
@@ -43,7 +43,10 @@ export function PanelChrome({
             <span className="text-xs text-ogun-muted">· {merchant.country}</span>
           )}
         </div>
-        <div className="max-w-7xl mx-auto px-6 pb-3 flex items-center gap-2 overflow-x-auto">
+        <nav
+          aria-label="Merchant panel sections"
+          className="max-w-7xl mx-auto px-6 pb-3 flex items-center gap-2 overflow-x-auto"
+        >
           {TABS.map((t) => {
             const active = t.key === currentTab;
             const cls = active
@@ -57,13 +60,14 @@ export function PanelChrome({
               <Link
                 key={t.key}
                 href={href}
+                aria-current={active ? 'page' : undefined}
                 className={`px-3 py-1.5 rounded-md text-sm whitespace-nowrap no-underline ${cls}`}
               >
                 {t.label}
               </Link>
             );
           })}
-        </div>
+        </nav>
       </div>
       <main className="max-w-7xl mx-auto px-6 py-6">{children}</main>
     </div>

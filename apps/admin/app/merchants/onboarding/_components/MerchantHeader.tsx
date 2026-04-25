@@ -13,9 +13,9 @@ export function MerchantHeader({
   return (
     <div className="max-w-7xl mx-auto px-6 pt-6 pb-2 flex items-center gap-3 flex-wrap">
       <div>
-        <div className="text-xl font-semibold">
+        <h1 className="text-xl font-semibold">
           {merchant.legal_name || merchant.trading_name || '(unnamed)'}
-        </div>
+        </h1>
         <div className="text-xs text-ogun-muted mono">{merchant.id}</div>
       </div>
       <Badge status={merchant.status} />

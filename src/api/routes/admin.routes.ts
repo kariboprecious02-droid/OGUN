@@ -19,7 +19,7 @@ import {
   updateMerchantProfile,
 } from '@/modules/merchant/merchant.service';
 import { MerchantStatus } from '@/modules/merchant/merchant.types';
-import { issueCredentials } from '@/modules/auth/auth.service';
+import { issueCredentials, rotateKey } from '@/modules/auth/auth.service';
 import { upsertSettings, resolveEffectiveSettings } from '@/modules/merchant/settings.repository';
 import {
   uploadDocument,
@@ -908,6 +908,48 @@ router.get('/admin/settlements', async (req, res, next) => {
     }));
     res.json(
       paginated(normalized, page, limit, Number(totals[0]?.count ?? 0), req.ogunContext.requestId),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Admin-mirror rotation endpoints. The merchant-auth versions live in
+ * merchants.routes.ts; admins can target any merchant id by name.
+ */
+const adminRotateBody = z.object({
+  environment: z.enum(['sandbox', 'live']).default('sandbox'),
+});
+
+router.post('/admin/merchants/:id/api-keys/rotate', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const body = parseBody(adminRotateBody, req.body ?? {});
+    const env = body.environment ?? 'sandbox';
+    const secret = await rotateKey(req.params.id, 'secret', env);
+    res.json(
+      success(
+        { key_type: 'secret', environment: env, secret_key: secret },
+        { request_id: req.ogunContext.requestId },
+      ),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/admin/merchants/:id/webhook-secret/rotate', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const body = parseBody(adminRotateBody, req.body ?? {});
+    const env = body.environment ?? 'sandbox';
+    const secret = await rotateKey(req.params.id, 'webhook_secret', env);
+    res.json(
+      success(
+        { key_type: 'webhook_secret', environment: env, webhook_secret: secret },
+        { request_id: req.ogunContext.requestId },
+      ),
     );
   } catch (err) {
     next(err);
