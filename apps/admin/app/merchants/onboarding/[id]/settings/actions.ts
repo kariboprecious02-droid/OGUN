@@ -15,7 +15,18 @@ function num(v: FormDataEntryValue | null): number | undefined {
   const s = String(v ?? '').trim();
   if (!s) return undefined;
   const n = Number(s);
-  return Number.isFinite(n) && n >= 0 ? n : undefined;
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function rejectNegatives(
+  fields: Array<{ name: string; value: number | undefined }>,
+): string | null {
+  for (const f of fields) {
+    if (f.value !== undefined && f.value < 0) {
+      return `${f.name} cannot be negative.`;
+    }
+  }
+  return null;
 }
 
 function emails(v: FormDataEntryValue | null): string[] | undefined {
@@ -32,18 +43,31 @@ export async function saveMerchantSettingsAction(formData: FormData): Promise<vo
   const merchantId = String(formData.get('merchant_id') ?? '');
   if (!merchantId) redirect('/compliance');
 
+  const collection_fee_pct = num(formData.get('collection_fee_pct'));
+  const payout_fee_pct = num(formData.get('payout_fee_pct'));
+  const settlement_fee_pct = num(formData.get('settlement_fee_pct'));
+
+  const negErr = rejectNegatives([
+    { name: 'Collection fee %', value: collection_fee_pct },
+    { name: 'Payout fee %', value: payout_fee_pct },
+    { name: 'Settlement fee %', value: settlement_fee_pct },
+  ]);
+  if (negErr) {
+    redirect(`/merchants/onboarding/${merchantId}/settings?err=${encodeURIComponent(negErr)}`);
+  }
+
   const enabled_methods = ENABLED_METHOD_OPTIONS.filter(
     (m) => String(formData.get(`method_${m}`) ?? '') === 'on',
   );
 
   const body: SettingsBody = {
-    collection_fee_pct: num(formData.get('collection_fee_pct')),
+    collection_fee_pct,
     collection_fee_model: (String(formData.get('collection_fee_model') ?? '') ||
       undefined) as SettingsBody['collection_fee_model'],
-    payout_fee_pct: num(formData.get('payout_fee_pct')),
+    payout_fee_pct,
     payout_fee_model: (String(formData.get('payout_fee_model') ?? '') ||
       undefined) as SettingsBody['payout_fee_model'],
-    settlement_fee_pct: num(formData.get('settlement_fee_pct')),
+    settlement_fee_pct,
     notification_emails: emails(formData.get('notification_emails')),
     enabled_methods: enabled_methods.length > 0 ? enabled_methods : undefined,
   };
@@ -104,15 +128,26 @@ export async function saveSubMerchantSettingsAction(formData: FormData): Promise
   const subId = String(formData.get('sub_id') ?? '');
   if (!merchantId || !subId) redirect('/compliance');
 
+  const collection_fee_pct = num(formData.get('collection_fee_pct'));
+  const payout_fee_pct = num(formData.get('payout_fee_pct'));
+
+  const negErr = rejectNegatives([
+    { name: 'Collection fee %', value: collection_fee_pct },
+    { name: 'Payout fee %', value: payout_fee_pct },
+  ]);
+  if (negErr) {
+    redirect(`/merchants/onboarding/${merchantId}/settings?err=${encodeURIComponent(negErr)}`);
+  }
+
   const enabled_methods = ENABLED_METHOD_OPTIONS.filter(
     (m) => String(formData.get(`method_${m}`) ?? '') === 'on',
   );
 
   const body: SettingsBody = {
-    collection_fee_pct: num(formData.get('collection_fee_pct')),
+    collection_fee_pct,
     collection_fee_model: (String(formData.get('collection_fee_model') ?? '') ||
       undefined) as SettingsBody['collection_fee_model'],
-    payout_fee_pct: num(formData.get('payout_fee_pct')),
+    payout_fee_pct,
     payout_fee_model: (String(formData.get('payout_fee_model') ?? '') ||
       undefined) as SettingsBody['payout_fee_model'],
     enabled_methods: enabled_methods.length > 0 ? enabled_methods : undefined,

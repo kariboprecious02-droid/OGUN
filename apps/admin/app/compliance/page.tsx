@@ -94,12 +94,12 @@ export default async function ComplianceListPage({
               return (
                 <tr key={m.id} className="hover:bg-ogun-bg/50">
                   <td className="mono">
-                    <Link href={target} className="no-underline text-ogun-text hover:text-ogun-accent">
+                    <Link href={target} className="no-underline text-ogun-text hover:text-ogun-accent-on-dark">
                       {m.id}
                     </Link>
                   </td>
                   <td>
-                    <Link href={target} className="no-underline text-ogun-text hover:text-ogun-accent">
+                    <Link href={target} className="no-underline text-ogun-text hover:text-ogun-accent-on-dark">
                       {m.legal_name}
                     </Link>
                   </td>

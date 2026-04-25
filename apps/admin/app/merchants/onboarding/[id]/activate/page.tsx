@@ -66,8 +66,8 @@ export default async function ActivateStepPage({
 
         {/* Credentials — show once */}
         {creds && (
-          <section className="panel-padded border border-ogun-accent/50">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-ogun-accent mb-2">
+          <section className="panel-padded border border-ogun-accent-on-dark/50">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-ogun-accent-on-dark mb-2">
               Credentials issued — copy now
             </h3>
             <p className="text-sm text-ogun-muted mb-4">

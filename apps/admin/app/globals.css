@@ -9,7 +9,7 @@
     min-height: 100vh;
   }
   a {
-    @apply text-ogun-accent hover:underline;
+    @apply text-ogun-accent-on-dark hover:underline;
   }
   code,
   .mono {
@@ -25,7 +25,7 @@
     @apply bg-ogun-surface border border-ogun-border rounded-md p-5;
   }
   .btn {
-    @apply inline-flex items-center gap-2 px-4 py-2 rounded-md border border-ogun-border bg-ogun-surface hover:border-ogun-accent transition;
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-md border border-ogun-border bg-ogun-surface hover:border-ogun-accent-on-dark transition;
   }
   .btn-primary {
     @apply bg-ogun-accent text-white border-transparent hover:brightness-110;
@@ -65,7 +65,7 @@
   .badge-under_ai_review,
   .badge-under_manual_review,
   .badge-changes_requested {
-    @apply bg-ogun-accent/20 text-ogun-accent;
+    @apply bg-ogun-accent/20 text-ogun-accent-on-dark;
   }
   .badge-approved,
   .badge-credentials_issued,

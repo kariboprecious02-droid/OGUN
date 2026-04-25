@@ -219,7 +219,7 @@ export default async function ComplianceDetailPage({
                         details: string;
                       }>
                     ).map((f, i) => (
-                      <li key={i} className="border-l-2 border-ogun-accent pl-2">
+                      <li key={i} className="border-l-2 border-ogun-accent-on-dark pl-2">
                         <strong>{f.issue}</strong> <span className="text-ogun-muted">[{f.severity}]</span>
                         <div className="text-ogun-muted">{f.details}</div>
                       </li>

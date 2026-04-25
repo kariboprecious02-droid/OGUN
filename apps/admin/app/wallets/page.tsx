@@ -75,7 +75,7 @@ export default async function WalletsPage({
             {result.items.map((w) => (
               <tr key={w.id} className="hover:bg-ogun-bg/50">
                 <td className="mono">
-                  <Link href={`/wallets/${w.id}`} className="no-underline text-ogun-text hover:text-ogun-accent">
+                  <Link href={`/wallets/${w.id}`} className="no-underline text-ogun-text hover:text-ogun-accent-on-dark">
                     {w.id}
                   </Link>
                 </td>

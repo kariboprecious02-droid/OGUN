@@ -93,7 +93,7 @@ export default async function MerchantPanelPage({
         {SUB_TABS.map((s) => {
           const active = s.key === subTab;
           const cls = active
-            ? 'text-ogun-accent border-b-2 border-ogun-accent'
+            ? 'text-ogun-accent-on-dark border-b-2 border-ogun-accent-on-dark'
             : 'text-ogun-muted hover:text-ogun-text';
           return (
             <Link

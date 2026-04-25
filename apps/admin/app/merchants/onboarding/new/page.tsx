@@ -220,7 +220,7 @@ export default async function OnboardingCreatePage({
                 name="notification_emails"
                 rows={3}
                 placeholder="ops@example.com&#10;finance@example.com"
-                className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent outline-none text-sm"
+                className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent-on-dark outline-none text-sm"
               />
             </Section>
 
@@ -302,7 +302,7 @@ function Field({
         maxLength={maxLength}
         min={min}
         defaultValue={defaultValue}
-        className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent outline-none text-sm"
+        className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent-on-dark outline-none text-sm"
       />
       {help && <p className="text-xs text-ogun-muted mt-1">{help}</p>}
     </div>

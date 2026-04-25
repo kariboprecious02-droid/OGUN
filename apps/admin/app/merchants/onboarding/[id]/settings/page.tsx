@@ -149,7 +149,7 @@ export default async function SettingsPage({
                 name="notification_emails"
                 rows={2}
                 placeholder="ops@example.com, finance@example.com"
-                className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent outline-none text-sm"
+                className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent-on-dark outline-none text-sm"
               />
             </div>
 
@@ -191,7 +191,7 @@ export default async function SettingsPage({
 
           {/* Add sub-merchant form */}
           <details className="mt-4">
-            <summary className="text-sm text-ogun-accent cursor-pointer">
+            <summary className="text-sm text-ogun-accent-on-dark cursor-pointer">
               + Add sub-merchant
             </summary>
             <form action={createSubMerchantAction} className="space-y-4 mt-4">
@@ -280,7 +280,7 @@ function TextField({
         required={required}
         placeholder={placeholder}
         defaultValue={defaultValue}
-        className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent outline-none text-sm"
+        className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent-on-dark outline-none text-sm"
       />
     </div>
   );
@@ -312,7 +312,7 @@ function NumberField({
         min="0"
         placeholder={placeholder}
         defaultValue={defaultValue}
-        className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent outline-none text-sm"
+        className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent-on-dark outline-none text-sm"
       />
     </div>
   );
@@ -338,7 +338,7 @@ function SelectField({
         id={name}
         name={name}
         defaultValue={defaultValue}
-        className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent outline-none text-sm"
+        className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent-on-dark outline-none text-sm"
       >
         <option value="">—</option>
         {options.map((o) => (

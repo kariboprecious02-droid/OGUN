@@ -297,7 +297,7 @@ function Field({
         defaultValue={defaultValue}
         disabled={disabled}
         min={min}
-        className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border focus:border-ogun-accent-on-dark outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
       />
       {hint && <p className="text-xs text-ogun-muted mt-1">{hint}</p>}
     </div>

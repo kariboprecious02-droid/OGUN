@@ -93,7 +93,7 @@ function StatCard({
   return (
     <Link href={href} className="no-underline">
       <div
-        className={`panel-padded transition hover:border-ogun-accent ${accent ? 'border-ogun-accent' : ''}`}
+        className={`panel-padded transition hover:border-ogun-accent-on-dark ${accent ? 'border-ogun-accent-on-dark' : ''}`}
       >
         <div className="text-sm text-ogun-muted">{title}</div>
         <div className="text-3xl font-bold mt-1">{value}</div>

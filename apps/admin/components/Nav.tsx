@@ -12,7 +12,7 @@ export function Nav(): React.ReactElement {
   return (
     <nav className="bg-ogun-surface border-b border-ogun-border">
       <div className="max-w-7xl mx-auto px-6 py-3 flex items-center gap-6">
-        <Link href="/" className="text-ogun-accent font-bold text-lg no-underline">
+        <Link href="/" className="text-ogun-accent-on-dark font-bold text-lg no-underline">
           Ogun
         </Link>
         <NavLink href="/compliance">Compliance</NavLink>
@@ -40,7 +40,7 @@ function NavLink({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <Link href={href} className="text-sm text-ogun-text no-underline hover:text-ogun-accent">
+    <Link href={href} className="text-sm text-ogun-text no-underline hover:text-ogun-accent-on-dark">
       {children}
     </Link>
   );

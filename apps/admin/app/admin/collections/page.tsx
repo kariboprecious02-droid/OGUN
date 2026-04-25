@@ -82,7 +82,7 @@ export default async function AdminCollectionsDashboard(): Promise<React.ReactEl
                 <td>
                   <Link
                     href={`/merchants/${m.id}/collections`}
-                    className="no-underline text-ogun-text hover:text-ogun-accent"
+                    className="no-underline text-ogun-text hover:text-ogun-accent-on-dark"
                   >
                     {m.name}
                   </Link>
@@ -94,7 +94,7 @@ export default async function AdminCollectionsDashboard(): Promise<React.ReactEl
                 <td className="text-right">
                   <Link
                     href={`/merchants/${m.id}/collections`}
-                    className="text-xs text-ogun-accent"
+                    className="text-xs text-ogun-accent-on-dark"
                   >
                     Open →
                   </Link>
@@ -123,7 +123,7 @@ function Kpi({
       <div className="flex items-end justify-between gap-3 mt-1">
         <div className="text-xl font-semibold">{value}</div>
         {spark && (
-          <span className="text-ogun-accent">
+          <span className="text-ogun-accent-on-dark">
             <Sparkline values={spark} />
           </span>
         )}
