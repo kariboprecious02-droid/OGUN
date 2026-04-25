@@ -10,11 +10,13 @@ import {
   suspendMerchant,
   rotateMerchantSecretKey,
   rotateMerchantWebhookSecret,
+  sendTestWebhook,
   type RotationEnv,
   type SettingsBody,
 } from '@/lib/api';
 
-const ENABLED_METHOD_OPTIONS = ['mpesa', 'airtel', 'till', 'card', 'bank'];
+const ENABLED_COLLECTION_METHODS = ['mpesa', 'airtel', 'till', 'card', 'bank'];
+const ENABLED_PAYOUT_METHODS = ['mpesa', 'airtel', 'bank'];
 
 function num(v: FormDataEntryValue | null): number | undefined {
   const s = String(v ?? '').trim();
@@ -61,9 +63,19 @@ export async function panelSaveMerchantSettingsAction(formData: FormData): Promi
     redirect(`/merchants/${merchantId}?tab=accounts&err=${encodeURIComponent(negErr)}`);
   }
 
-  const enabled_methods = ENABLED_METHOD_OPTIONS.filter(
+  const enabled_methods = ENABLED_COLLECTION_METHODS.filter(
     (m) => String(formData.get(`method_${m}`) ?? '') === 'on',
   );
+  const enabled_payout_methods = ENABLED_PAYOUT_METHODS.filter(
+    (m) => String(formData.get(`payout_method_${m}`) ?? '') === 'on',
+  );
+  const settlementFreq = String(formData.get('settlement_frequency') ?? '').trim() || undefined;
+  const webhookUrl = String(formData.get('webhook_url') ?? '').trim() || null;
+
+  if (webhookUrl && !webhookUrl.startsWith('https://')) {
+    redirect(`/merchants/${merchantId}?tab=accounts&err=${encodeURIComponent('Webhook URL must use HTTPS.')}`);
+  }
+
   const body: SettingsBody = {
     collection_fee_pct,
     collection_fee_model: (String(formData.get('collection_fee_model') ?? '') ||
@@ -73,7 +85,10 @@ export async function panelSaveMerchantSettingsAction(formData: FormData): Promi
       undefined) as SettingsBody['payout_fee_model'],
     settlement_fee_pct,
     notification_emails: emails(formData.get('notification_emails')),
-    enabled_methods: enabled_methods.length > 0 ? enabled_methods : undefined,
+    enabled_methods: enabled_methods.length > 0 ? enabled_methods : [],
+    enabled_payout_methods: enabled_payout_methods.length > 0 ? enabled_payout_methods : [],
+    settlement_frequency: settlementFreq as SettingsBody['settlement_frequency'],
+    webhook_url: webhookUrl,
   };
 
   try {
@@ -104,8 +119,8 @@ export async function panelSaveSubMerchantSettingsAction(
     redirect(`/merchants/${merchantId}?tab=sub_merchants&err=${encodeURIComponent(negErr)}`);
   }
 
-  const enabled_methods = ENABLED_METHOD_OPTIONS.filter(
-    (m) => String(formData.get(`method_${m}`) ?? '') === 'on',
+  const enabled_methods = ENABLED_COLLECTION_METHODS.filter(
+    (m: string) => String(formData.get(`method_${m}`) ?? '') === 'on',
   );
   const body: SettingsBody = {
     collection_fee_pct,
@@ -247,4 +262,24 @@ export async function panelDismissRotationFlashAction(formData: FormData): Promi
   const jar = await cookies();
   jar.delete(`rotated_${merchantId}`);
   redirect(`/merchants/${merchantId}?tab=credentials`);
+}
+
+export async function panelSendTestWebhookAction(formData: FormData): Promise<void> {
+  const merchantId = String(formData.get('merchant_id') ?? '');
+  if (!merchantId) redirect('/compliance');
+  try {
+    const result = await sendTestWebhook(merchantId);
+    if (result.ok) {
+      redirect(
+        `/merchants/${merchantId}?tab=accounts&ok=webhook-test-${result.status}`,
+      );
+    } else {
+      redirect(
+        `/merchants/${merchantId}?tab=accounts&err=${encodeURIComponent(`Webhook test failed: HTTP ${result.status} — ${result.body_excerpt.slice(0, 200)}`)}`,
+      );
+    }
+  } catch (err) {
+    const msg = encodeURIComponent(err instanceof Error ? err.message : 'webhook test failed');
+    redirect(`/merchants/${merchantId}?tab=accounts&err=${msg}`);
+  }
 }

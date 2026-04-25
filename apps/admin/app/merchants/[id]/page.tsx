@@ -2,8 +2,10 @@ import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
-import { getMerchantDetail, getMerchantSettings, OgunApiError, centsToKes, type EffectiveSettings } from '@/lib/api';
+import { getMerchantDetail, getMerchantSettings, getMaskedCredentials, OgunApiError, centsToKes, type EffectiveSettings, type MaskedCredential } from '@/lib/api';
 import { PanelChrome } from './_components/PanelChrome';
+import { DevDocsTab } from './_components/DevDocsTab';
+import { CredentialsPanel } from '@/components/CredentialsPanel';
 import { DirtyFormGuard } from '@/components/DirtyFormGuard';
 import {
   panelSaveMerchantSettingsAction,
@@ -12,6 +14,7 @@ import {
   panelRotateSecretKeyAction,
   panelRotateWebhookSecretAction,
   panelDismissRotationFlashAction,
+  panelSendTestWebhookAction,
 } from './actions';
 import { Badge } from '@/components/Badge';
 
@@ -21,21 +24,35 @@ type RotationFlash = {
   value: string;
 };
 
-type SettingsSubTab = 'profile' | 'accounts' | 'sub_merchants' | 'credentials';
+type SettingsSubTab = 'profile' | 'accounts' | 'sub_merchants' | 'credentials' | 'dev_docs';
 
 const SUB_TABS: ReadonlyArray<{ key: SettingsSubTab; label: string }> = [
   { key: 'profile', label: 'Profile' },
   { key: 'accounts', label: 'Accounts' },
   { key: 'sub_merchants', label: 'Sub-merchants' },
   { key: 'credentials', label: 'Credentials' },
+  { key: 'dev_docs', label: 'Dev Docs' },
 ];
 
-const METHODS = [
-  { key: 'mpesa', label: 'M-Pesa' },
+const COLLECTION_METHODS = [
+  { key: 'mpesa', label: 'M-Pesa STK Push' },
   { key: 'airtel', label: 'Airtel Money' },
   { key: 'till', label: 'Till' },
   { key: 'card', label: 'Card' },
   { key: 'bank', label: 'Bank transfer' },
+] as const;
+
+const PAYOUT_METHODS = [
+  { key: 'mpesa', label: 'M-Pesa B2C' },
+  { key: 'airtel', label: 'Airtel Disbursement' },
+  { key: 'bank', label: 'Bank EFT' },
+] as const;
+
+const SETTLEMENT_FREQUENCIES = [
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'bi-weekly', label: 'Bi-weekly' },
+  { value: 'monthly', label: 'Monthly' },
 ] as const;
 
 export default async function MerchantPanelPage({
@@ -49,7 +66,7 @@ export default async function MerchantPanelPage({
   const { id } = await params;
   const sp = await searchParams;
   const subTab: SettingsSubTab = (typeof sp.tab === 'string' &&
-    ['profile', 'accounts', 'sub_merchants', 'credentials'].includes(sp.tab)
+    ['profile', 'accounts', 'sub_merchants', 'credentials', 'dev_docs'].includes(sp.tab)
     ? sp.tab
     : 'profile') as SettingsSubTab;
   const ok = typeof sp.ok === 'string' ? sp.ok : null;
@@ -57,10 +74,12 @@ export default async function MerchantPanelPage({
 
   let detail;
   let settings: EffectiveSettings | null = null;
+  let maskedCreds: MaskedCredential[] = [];
   try {
-    [detail, settings] = await Promise.all([
+    [detail, settings, maskedCreds] = await Promise.all([
       getMerchantDetail(id),
       getMerchantSettings(id).catch(() => null),
+      getMaskedCredentials(id).catch(() => [] as MaskedCredential[]),
     ]);
   } catch (err) {
     if (err instanceof OgunApiError && err.status === 404) notFound();
@@ -116,6 +135,7 @@ export default async function MerchantPanelPage({
           {ok === 'suspended' && 'Merchant suspended.'}
           {ok === 'secret-rotated' && 'Secret key rotated. Copy it now — it will not be shown again.'}
           {ok === 'webhook-rotated' && 'Webhook secret rotated. Copy it now — it will not be shown again.'}
+          {ok?.startsWith('webhook-test-') && `Webhook test succeeded (HTTP ${ok.replace('webhook-test-', '')}).`}
         </div>
       )}
       {errMsg && (
@@ -125,12 +145,34 @@ export default async function MerchantPanelPage({
       )}
 
       {subTab === 'profile' && <ProfileTab merchant={detail.merchant} />}
-      {subTab === 'accounts' && <AccountsTab merchantId={id} settings={settings} />}
+      {subTab === 'accounts' && (
+        <AccountsTab merchantId={id} settings={settings} />
+      )}
       {subTab === 'sub_merchants' && (
         <SubMerchantsTab subMerchants={detail.sub_merchants} merchantId={id} />
       )}
       {subTab === 'credentials' && (
-        <CredentialsTab merchantId={id} flash={rotationFlash} />
+        <CredentialsPanel
+          merchantId={id}
+          maskedCredentials={maskedCreds}
+          rotateSecretKeyAction={panelRotateSecretKeyAction}
+          rotateWebhookSecretAction={panelRotateWebhookSecretAction}
+          dismissFlashAction={panelDismissRotationFlashAction}
+          flash={rotationFlash}
+        />
+      )}
+      {subTab === 'dev_docs' && (
+        <DevDocsTab
+          merchantId={id}
+          publishableKey={maskedCreds.find((c) => c.key_type === 'publishable' && c.environment === 'live')?.masked_value
+            ?? maskedCreds.find((c) => c.key_type === 'publishable')?.masked_value
+            ?? null}
+          enabledCollectionMethods={settings?.enabled_methods ?? []}
+          enabledPayoutMethods={settings?.enabled_payout_methods ?? []}
+          webhookUrl={settings?.webhook_url ?? null}
+          merchantStatus={detail.merchant.status}
+          baseUrl={process.env.OGUN_API_BASE_URL ?? 'https://api.ogun.io/v1'}
+        />
       )}
     </PanelChrome>
     </DirtyFormGuard>
@@ -235,18 +277,19 @@ function AccountsTab({
   settings: EffectiveSettings | null;
 }): React.ReactElement {
   const s = settings ?? {};
-  const enabledSet = new Set(s.enabled_methods ?? []);
+  const enabledCollSet = new Set(s.enabled_methods ?? []);
+  const enabledPayoutSet = new Set(s.enabled_payout_methods ?? []);
   return (
-    <section className="panel-padded">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
-        Fees, methods & notifications
-      </h2>
-      <p className="text-xs text-ogun-muted mb-4">
-        Merchant-level settings. Sub-merchants may override these in their own
-        tab.
-      </p>
-      <form action={panelSaveMerchantSettingsAction} className="space-y-4">
-        <input type="hidden" name="merchant_id" value={merchantId} />
+    <form action={panelSaveMerchantSettingsAction} className="space-y-6">
+      <input type="hidden" name="merchant_id" value={merchantId} />
+
+      <section className="panel-padded">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+          Fees & settlement
+        </h2>
+        <p className="text-xs text-ogun-muted mb-4">
+          Merchant-level settings. Sub-merchants may override these.
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <NumberField
             label="Collection fee %"
@@ -284,45 +327,123 @@ function AccountsTab({
             step="0.01"
             defaultValue={s.settlement_fee_pct != null ? String(s.settlement_fee_pct) : ''}
           />
-        </div>
-        <div>
-          <div className="text-sm text-ogun-muted mb-2">Enabled payment methods</div>
-          <div className="flex flex-wrap gap-3">
-            {METHODS.map((m) => (
-              <label
-                key={m.key}
-                className="flex items-center gap-2 px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border text-sm"
-              >
-                <input
-                  type="checkbox"
-                  name={`method_${m.key}`}
-                  defaultChecked={enabledSet.has(m.key)}
-                />
-                {m.label}
-              </label>
-            ))}
-          </div>
-        </div>
-        <div>
-          <label htmlFor="notification_emails" className="block text-sm text-ogun-muted mb-1">
-            Notification emails
-          </label>
-          <textarea
-            id="notification_emails"
-            name="notification_emails"
-            rows={2}
-            defaultValue={(s.notification_emails ?? []).join(', ')}
-            placeholder="ops@example.com, finance@example.com"
-            className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border text-sm"
+          <SelectField
+            label="Settlement frequency"
+            name="settlement_frequency"
+            defaultValue={s.settlement_frequency ?? 'weekly'}
+            options={SETTLEMENT_FREQUENCIES.map((f) => ({ value: f.value, label: f.label }))}
           />
         </div>
-        <div className="flex justify-end">
-          <button type="submit" className="btn btn-primary">
-            Save settings
-          </button>
+      </section>
+
+      <section className="panel-padded">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+          Enabled collection methods
+        </h2>
+        <div className="flex flex-wrap gap-3">
+          {COLLECTION_METHODS.map((m) => (
+            <label
+              key={m.key}
+              className="flex items-center gap-2 px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border text-sm"
+            >
+              <input
+                type="checkbox"
+                name={`method_${m.key}`}
+                defaultChecked={enabledCollSet.has(m.key)}
+              />
+              {m.label}
+            </label>
+          ))}
         </div>
-      </form>
-    </section>
+        {enabledCollSet.size === 0 && (
+          <p className="text-xs text-ogun-warn mt-2">
+            This merchant cannot process collections — enable at least one method.
+          </p>
+        )}
+      </section>
+
+      <section className="panel-padded">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+          Enabled payout methods
+        </h2>
+        <div className="flex flex-wrap gap-3">
+          {PAYOUT_METHODS.map((m) => (
+            <label
+              key={m.key}
+              className="flex items-center gap-2 px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border text-sm"
+            >
+              <input
+                type="checkbox"
+                name={`payout_method_${m.key}`}
+                defaultChecked={enabledPayoutSet.has(m.key)}
+              />
+              {m.label}
+            </label>
+          ))}
+        </div>
+        {enabledPayoutSet.size === 0 && (
+          <p className="text-xs text-ogun-warn mt-2">
+            This merchant cannot process payouts — enable at least one method.
+          </p>
+        )}
+      </section>
+
+      <section className="panel-padded">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+          Webhook & notifications
+        </h2>
+        <div className="grid grid-cols-1 gap-4">
+          <div>
+            <label htmlFor="webhook_url" className="block text-sm text-ogun-muted mb-1">
+              Webhook URL (HTTPS only)
+            </label>
+            <input
+              id="webhook_url"
+              name="webhook_url"
+              type="url"
+              defaultValue={s.webhook_url ?? ''}
+              placeholder="https://your-server.com/webhooks/ogun"
+              className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border text-sm"
+            />
+            <p className="text-xs text-ogun-muted mt-1">
+              Ogun POSTs signed event notifications (collection status, payout status,
+              settlements) to this URL. The merchant verifies signatures using
+              their webhook signing secret.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="notification_emails" className="block text-sm text-ogun-muted mb-1">
+              Notification emails
+            </label>
+            <textarea
+              id="notification_emails"
+              name="notification_emails"
+              rows={2}
+              defaultValue={(s.notification_emails ?? []).join(', ')}
+              placeholder="ops@example.com, finance@example.com"
+              className="w-full px-3 py-2 rounded-md bg-ogun-bg border border-ogun-border text-sm"
+            />
+          </div>
+        </div>
+      </section>
+
+      <div className="flex items-center justify-between">
+        <form action={panelSendTestWebhookAction}>
+          <input type="hidden" name="merchant_id" value={merchantId} />
+          <button
+            type="submit"
+            className="btn text-xs"
+            disabled={!s.webhook_url}
+            title={s.webhook_url ? 'Send a test ping to the webhook URL' : 'Set a webhook URL first'}
+          >
+            Send test webhook
+          </button>
+        </form>
+        <button type="submit" className="btn btn-primary">
+          Save settings
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -388,98 +509,6 @@ function SubMerchantsTab({
               Create sub-merchant
             </button>
           </div>
-        </form>
-      </section>
-    </div>
-  );
-}
-
-function CredentialsTab({
-  merchantId,
-  flash,
-}: {
-  merchantId: string;
-  flash: RotationFlash | null;
-}): React.ReactElement {
-  return (
-    <div className="space-y-6">
-      {flash && (
-        <section className="panel-padded border border-amber-700/50 bg-amber-900/20">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-200 mb-2">
-            New {flash.kind === 'secret' ? 'secret key' : 'webhook secret'} —{' '}
-            {flash.environment}
-          </h2>
-          <p className="text-xs text-amber-100/80 mb-3">
-            Copy this value now. It is shown only once and cannot be retrieved
-            later. The previous {flash.kind === 'secret' ? 'secret key' : 'webhook secret'} for the {flash.environment} environment is now invalid.
-          </p>
-          <pre className="mono text-xs bg-ogun-bg border border-ogun-border rounded-md p-3 overflow-x-auto whitespace-pre-wrap break-all">
-            {flash.value}
-          </pre>
-          <form action={panelDismissRotationFlashAction} className="mt-3">
-            <input type="hidden" name="merchant_id" value={merchantId} />
-            <button type="submit" className="btn">
-              I have copied this value — dismiss
-            </button>
-          </form>
-        </section>
-      )}
-
-      <section className="panel-padded">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
-          API credentials
-        </h2>
-        <p className="text-sm text-ogun-muted mb-2">
-          Credentials are issued once at activation and not retrievable later.
-          Rotation issues a new key for the chosen environment and immediately
-          invalidates the previous one.
-        </p>
-        <p className="text-xs text-ogun-muted">
-          Sandbox keys are safe for staging tests; live rotations affect
-          production traffic — coordinate with the merchant before rotating
-          live.
-        </p>
-      </section>
-
-      <section className="panel-padded">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
-          Rotate secret key
-        </h2>
-        <form action={panelRotateSecretKeyAction} className="flex items-end gap-3 flex-wrap">
-          <input type="hidden" name="merchant_id" value={merchantId} />
-          <SelectField
-            label="Environment"
-            name="environment"
-            defaultValue="sandbox"
-            options={[
-              { value: 'sandbox', label: 'sandbox' },
-              { value: 'live', label: 'live' },
-            ]}
-          />
-          <button type="submit" className="btn">
-            Rotate secret key
-          </button>
-        </form>
-      </section>
-
-      <section className="panel-padded">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
-          Rotate webhook secret
-        </h2>
-        <form action={panelRotateWebhookSecretAction} className="flex items-end gap-3 flex-wrap">
-          <input type="hidden" name="merchant_id" value={merchantId} />
-          <SelectField
-            label="Environment"
-            name="environment"
-            defaultValue="sandbox"
-            options={[
-              { value: 'sandbox', label: 'sandbox' },
-              { value: 'live', label: 'live' },
-            ]}
-          />
-          <button type="submit" className="btn">
-            Rotate webhook secret
-          </button>
         </form>
       </section>
     </div>

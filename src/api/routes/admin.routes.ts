@@ -750,6 +750,9 @@ const adminSettingsBody = z
     settlement_fee_pct: z.number().nonnegative().optional(),
     notification_emails: z.array(z.string().email()).optional(),
     enabled_methods: z.array(z.string()).optional(),
+    enabled_payout_methods: z.array(z.string()).optional(),
+    settlement_frequency: z.enum(['daily', 'weekly', 'bi-weekly', 'monthly']).optional(),
+    webhook_url: z.string().url().startsWith('https://').max(2048).optional().nullable(),
   })
   .strict();
 
@@ -951,6 +954,89 @@ router.post('/admin/merchants/:id/webhook-secret/rotate', async (req, res, next)
         { request_id: req.ogunContext.requestId },
       ),
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /v1/admin/merchants/:id/credentials/masked — returns masked credential
+ * values for display in the admin panel. Plaintext is never returned; only
+ * masked_value (e.g., sk_live_••••1234) and the key_type + environment.
+ */
+router.get('/admin/merchants/:id/credentials/masked', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const { rows } = await query<{
+      key_type: string;
+      environment: string;
+      masked_value: string;
+      is_active: boolean;
+      created_at: string;
+      rotated_at: string | null;
+    }>(
+      `SELECT key_type, environment, masked_value, is_active, created_at, rotated_at
+         FROM api_credentials
+        WHERE merchant_id = $1 AND is_active = true
+        ORDER BY environment, key_type`,
+      [req.params.id],
+    );
+    res.json(success(rows, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /v1/admin/merchants/:id/webhook-test — sends a test webhook event to
+ * the merchant's configured webhook_url. Returns the HTTP status + body excerpt.
+ */
+router.post('/admin/merchants/:id/webhook-test', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const settings = await resolveEffectiveSettings(req.params.id, null);
+    const url = settings.webhook_url;
+    if (!url) {
+      throw OgunError.invalidRequest('No webhook URL configured for this merchant.');
+    }
+    const payload = {
+      type: 'ping',
+      merchant_id: req.params.id,
+      timestamp: new Date().toISOString(),
+      test: true,
+    };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      const bodyText = await resp.text().catch(() => '');
+      res.json(
+        success(
+          {
+            url,
+            status: resp.status,
+            ok: resp.ok,
+            body_excerpt: bodyText.slice(0, 500),
+          },
+          { request_id: req.ogunContext.requestId },
+        ),
+      );
+    } catch (fetchErr) {
+      clearTimeout(timeout);
+      const msg = fetchErr instanceof Error ? fetchErr.message : 'fetch failed';
+      res.json(
+        success(
+          { url, status: 0, ok: false, body_excerpt: msg },
+          { request_id: req.ogunContext.requestId },
+        ),
+      );
+    }
   } catch (err) {
     next(err);
   }

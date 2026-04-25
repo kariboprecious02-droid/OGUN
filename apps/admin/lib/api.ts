@@ -426,6 +426,9 @@ export type SettingsBody = {
   settlement_fee_pct?: number;
   notification_emails?: string[];
   enabled_methods?: string[];
+  enabled_payout_methods?: string[];
+  settlement_frequency?: 'daily' | 'weekly' | 'bi-weekly' | 'monthly';
+  webhook_url?: string | null;
 };
 
 export type EffectiveSettings = SettingsBody & {
@@ -599,6 +602,41 @@ export async function rotateMerchantWebhookSecret(
   return request(`/admin/merchants/${merchantId}/webhook-secret/rotate`, {
     method: 'POST',
     body: JSON.stringify({ environment }),
+  });
+}
+
+/* ============================================================================
+ * Masked credentials + webhook test
+ * ========================================================================== */
+
+export type MaskedCredential = {
+  key_type: 'publishable' | 'secret' | 'webhook_secret';
+  environment: 'sandbox' | 'live';
+  masked_value: string;
+  is_active: boolean;
+  created_at: string;
+  rotated_at: string | null;
+};
+
+export async function getMaskedCredentials(
+  merchantId: string,
+): Promise<MaskedCredential[]> {
+  return request<MaskedCredential[]>(`/admin/merchants/${merchantId}/credentials/masked`);
+}
+
+export type WebhookTestResult = {
+  url: string;
+  status: number;
+  ok: boolean;
+  body_excerpt: string;
+};
+
+export async function sendTestWebhook(
+  merchantId: string,
+): Promise<WebhookTestResult> {
+  return request<WebhookTestResult>(`/admin/merchants/${merchantId}/webhook-test`, {
+    method: 'POST',
+    body: JSON.stringify({}),
   });
 }
 
