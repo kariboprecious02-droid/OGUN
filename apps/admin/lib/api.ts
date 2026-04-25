@@ -368,3 +368,217 @@ export async function listPayouts(params: {
   }
   return paged<PayoutSummary>(`/admin/payouts?${qs.toString()}`);
 }
+
+/* ============================================================================
+ * Settlements (admin)
+ * ========================================================================== */
+
+export type SettlementSummary = {
+  id: string;
+  merchant_id: string;
+  sub_merchant_id: string;
+  period_start: string;
+  period_end: string;
+  gross_amount: number;
+  fee_amount: number;
+  settlement_fee: number;
+  refund_adjustment_amount: number;
+  other_adjustment_amount: number;
+  net_amount: number;
+  transaction_count: number;
+  status: string;
+  payout_id: string | null;
+  report_url: string | null;
+  destination_summary: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listSettlements(params: {
+  page?: number;
+  limit?: number;
+  merchant_id?: string;
+  sub_merchant_id?: string;
+  status?: string;
+} = {}): Promise<Paginated<SettlementSummary>> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined) qs.set(k, String(v));
+  }
+  return paged<SettlementSummary>(`/admin/settlements?${qs.toString()}`);
+}
+
+/* ============================================================================
+ * Admin onboarding wizard wrappers — match the admin-mirror routes added in
+ * src/api/routes/admin.routes.ts. Body shapes mirror the merchant-side zod
+ * schemas verbatim.
+ * ========================================================================== */
+
+export type SettingsBody = {
+  collection_fee_pct?: number;
+  collection_fee_model?: 'merchant_covers' | 'payer_covers';
+  payout_fee_pct?: number;
+  payout_fee_model?: 'merchant_covers' | 'recipient_covers';
+  settlement_fee_pct?: number;
+  notification_emails?: string[];
+  enabled_methods?: string[];
+};
+
+export type EffectiveSettings = SettingsBody & {
+  merchant_id?: string;
+  sub_merchant_id?: string | null;
+  source?: 'merchant' | 'sub_merchant' | 'default';
+};
+
+export type CreateSubMerchantInput = {
+  merchant_id: string;
+  name: string;
+  code?: string;
+  settlement_preference?: 'daily' | 'weekly' | 'monthly' | 'on_demand';
+  settlement_destination?: { bank_name?: string; account_number?: string; branch_code?: string };
+  contact?: { name?: string; email?: string; phone?: string };
+};
+
+export type DocumentDetail = {
+  id: string;
+  merchant_id: string;
+  sub_merchant_id: string | null;
+  type: string;
+  file_url: string;
+  file_hash: string;
+  review_status: string;
+  extracted_data: Record<string, unknown> | null;
+  extraction_confidence: number | null;
+  uploaded_at: string;
+};
+
+/**
+ * Multipart upload helper — separate from request<T>() because that helper
+ * sets `Content-Type: application/json` and stringifies the body. fetch()
+ * sets the multipart Content-Type (with boundary) automatically when given
+ * a FormData body, so we just don't override it.
+ */
+export async function uploadMerchantDocument(
+  merchantId: string,
+  form: FormData,
+): Promise<DocumentDetail> {
+  const cookieStore = await cookies();
+  const secret = cookieStore.get(ADMIN_COOKIE)?.value ?? SERVER_ADMIN_SECRET;
+  const url = `${BASE_URL}/admin/merchants/${merchantId}/documents`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'X-Ogun-Admin-Secret': secret },
+    body: form,
+    cache: 'no-store',
+  });
+  const body = (await res.json()) as
+    | { status: 'success'; data: DocumentDetail; meta: Record<string, unknown> }
+    | { status: 'error'; error: { code: string; message: string }; meta: Record<string, unknown> };
+  if (body.status === 'error' || !res.ok) {
+    const err =
+      'error' in body ? body.error : { code: 'internal_error', message: res.statusText };
+    throw new OgunApiError(err.code, err.message, res.status);
+  }
+  return body.data;
+}
+
+export async function submitMerchantForReview(
+  merchantId: string,
+): Promise<{ merchant_id: string; status: string; recommendation: string; flags: unknown }> {
+  return request(`/admin/merchants/${merchantId}/submit`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export async function updateMerchantProfile(
+  merchantId: string,
+  body: {
+    legal_name?: string;
+    trading_name?: string;
+    registration_number?: string;
+    tax_id?: string;
+    business_category?: string;
+    business_address?: Record<string, unknown>;
+    website_url?: string;
+    expected_monthly_volume?: number;
+    expected_avg_ticket?: number;
+    contact_name?: string;
+    contact_email?: string;
+    contact_phone?: string;
+  },
+): Promise<MerchantSummary> {
+  return request<MerchantSummary>(`/admin/merchants/${merchantId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function patchMerchantSettings(
+  merchantId: string,
+  body: SettingsBody,
+): Promise<EffectiveSettings> {
+  return request<EffectiveSettings>(`/admin/merchants/${merchantId}/settings`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function patchSubMerchantSettings(
+  subMerchantId: string,
+  body: SettingsBody,
+): Promise<EffectiveSettings> {
+  return request<EffectiveSettings>(`/admin/sub-merchants/${subMerchantId}/settings`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function createSubMerchantAsAdmin(
+  body: CreateSubMerchantInput,
+): Promise<{ id: string; merchant_id: string; status: string }> {
+  return request<{ id: string; merchant_id: string; status: string }>(
+    `/admin/sub-merchants`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
+export async function suspendMerchant(
+  merchantId: string,
+  reason: string,
+): Promise<{ id: string; status: string }> {
+  return request<{ id: string; status: string }>(
+    `/admin/merchants/${merchantId}/suspend`,
+    { method: 'POST', body: JSON.stringify({ reason }) },
+  );
+}
+
+export async function issueCredentials(
+  merchantId: string,
+): Promise<{
+  secret_key: string;
+  publishable_key: string;
+  webhook_secret: string;
+}> {
+  return request(`/admin/merchants/${merchantId}/credentials`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+/* ============================================================================
+ * Money helpers — every amount crossing this api.ts boundary goes through
+ * one of these two. Component code only ever sees KES.
+ * ========================================================================== */
+
+/** Convert a KES amount (whole shillings) into minor units (cents) for the API. */
+export function kesToCents(kes: number): number {
+  if (!Number.isFinite(kes) || kes < 0) return 0;
+  return Math.round(kes * 100);
+}
+
+/** Convert a minor-unit (cents) amount from the API back into KES for display. */
+export function centsToKes(cents: number): number {
+  if (!Number.isFinite(cents)) return 0;
+  return cents / 100;
+}

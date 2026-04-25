@@ -8,9 +8,26 @@ import { z } from 'zod';
 import { parseBody, parseQuery, pagination, resolvePagination } from '@/api/validation';
 import { success, paginated } from '@/infra/response';
 import { OgunError } from '@/infra/errors';
-import { submitManualDecision } from '@/modules/compliance/compliance.service';
-import { activateMerchant, suspendMerchant, getMerchant, createMerchant } from '@/modules/merchant/merchant.service';
+import { submitManualDecision, runCompliancePipeline } from '@/modules/compliance/compliance.service';
+import {
+  activateMerchant,
+  suspendMerchant,
+  getMerchant,
+  createMerchant,
+  createSubMerchant,
+  transitionMerchant,
+  updateMerchantProfile,
+} from '@/modules/merchant/merchant.service';
+import { MerchantStatus } from '@/modules/merchant/merchant.types';
 import { issueCredentials } from '@/modules/auth/auth.service';
+import { upsertSettings, resolveEffectiveSettings } from '@/modules/merchant/settings.repository';
+import {
+  uploadDocument,
+  SUPPORTED_DOCUMENT_TYPES,
+  DocumentType,
+} from '@/modules/document/document.service';
+import { newId } from '@/infra/ids';
+import multer from 'multer';
 import { config } from '@/infra/config';
 import { query } from '@/infra/db/pool';
 
@@ -581,6 +598,294 @@ router.post('/admin/session', async (req, res, next) => {
         { authenticated: true, verified_at: new Date().toISOString() },
         { request_id: req.ogunContext.requestId },
       ),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ============================================================================
+ * Admin-mirror routes — admin-authenticated equivalents of the merchant-secret
+ * routes in merchants.routes.ts and documents.routes.ts. Used by the admin
+ * onboarding wizard to drive the full merchant lifecycle without needing the
+ * merchant's own sk_* key (which doesn't exist before activation anyway).
+ *
+ * Each handler reuses the same service function as its merchant-side twin —
+ * only the auth layer differs (requireAdmin vs requireSecretKey).
+ * ========================================================================== */
+
+const adminUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
+
+function shapeDocument(d: Awaited<ReturnType<typeof uploadDocument>>) {
+  return {
+    id: d.id,
+    merchant_id: d.merchant_id,
+    sub_merchant_id: d.sub_merchant_id,
+    type: d.type,
+    file_url: d.file_url,
+    file_hash: d.file_hash,
+    review_status: d.review_status,
+    extracted_data: d.extracted_data,
+    extraction_confidence: d.extraction_confidence,
+    uploaded_at: d.uploaded_at,
+  };
+}
+
+/**
+ * POST /v1/admin/merchants/:merchantId/documents — admin uploads a compliance
+ * document on behalf of a merchant. Same multipart contract as the
+ * merchant-side route (`file` + `type` + optional `sub_merchant_id`).
+ */
+router.post(
+  '/admin/merchants/:merchantId/documents',
+  adminUpload.single('file'),
+  async (req, res, next) => {
+    try {
+      requireAdmin(req);
+      const file = req.file;
+      if (!file) {
+        throw OgunError.invalidRequest('Missing file field in multipart body');
+      }
+      const rawType = (req.body as Record<string, unknown>).type;
+      const type = typeof rawType === 'string' ? rawType : '';
+      if (!SUPPORTED_DOCUMENT_TYPES.includes(type as DocumentType)) {
+        throw OgunError.invalidRequest(
+          `Field "type" must be one of: ${SUPPORTED_DOCUMENT_TYPES.join(', ')}`,
+        );
+      }
+      const subId = (req.body as Record<string, unknown>).sub_merchant_id;
+      const doc = await uploadDocument({
+        merchant_id: req.params.merchantId,
+        sub_merchant_id: typeof subId === 'string' ? subId : undefined,
+        type: type as DocumentType,
+        original_name: file.originalname,
+        content_type: file.mimetype,
+        body: file.buffer,
+      });
+      res.status(201).json(
+        success(shapeDocument(doc), { request_id: req.ogunContext.requestId }),
+      );
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * POST /v1/admin/merchants/:merchantId/submit — transitions the merchant to
+ * `submitted` and runs the compliance pipeline. Mirrors the public route at
+ * POST /v1/merchants/:id/submit.
+ */
+router.post('/admin/merchants/:merchantId/submit', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    await transitionMerchant(req.params.merchantId, MerchantStatus.Submitted);
+    const pipeline = await runCompliancePipeline(req.params.merchantId);
+    res.status(202).json(
+      success(
+        {
+          merchant_id: req.params.merchantId,
+          status: pipeline.new_status,
+          recommendation: pipeline.recommendation,
+          flags: pipeline.flags,
+        },
+        { request_id: req.ogunContext.requestId },
+      ),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+const adminPatchMerchantBody = z
+  .object({
+    legal_name: z.string().min(2).optional(),
+    trading_name: z.string().min(2).optional(),
+    registration_number: z.string().optional(),
+    tax_id: z.string().optional(),
+    business_category: z.string().optional(),
+    business_address: z.record(z.unknown()).optional(),
+    website_url: z.string().url().optional(),
+    expected_monthly_volume: z.number().int().nonnegative().optional(),
+    expected_avg_ticket: z.number().int().nonnegative().optional(),
+    contact_name: z.string().optional(),
+    contact_email: z.string().email().optional(),
+    contact_phone: z.string().optional(),
+  })
+  .strict();
+
+/**
+ * PATCH /v1/admin/merchants/:id — update whitelisted profile fields without
+ * requiring a merchant secret key.
+ */
+router.patch('/admin/merchants/:id', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const body = parseBody(adminPatchMerchantBody, req.body);
+    const updated = await updateMerchantProfile(req.params.id, body);
+    res.json(success(updated, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+const adminSettingsBody = z
+  .object({
+    collection_fee_pct: z.number().nonnegative().optional(),
+    collection_fee_model: z.enum(['merchant_covers', 'payer_covers']).optional(),
+    payout_fee_pct: z.number().nonnegative().optional(),
+    payout_fee_model: z.enum(['merchant_covers', 'recipient_covers']).optional(),
+    settlement_fee_pct: z.number().nonnegative().optional(),
+    notification_emails: z.array(z.string().email()).optional(),
+    enabled_methods: z.array(z.string()).optional(),
+  })
+  .strict();
+
+/**
+ * PATCH /v1/admin/merchants/:id/settings — admin-side merchant settings upsert.
+ */
+router.patch('/admin/merchants/:id/settings', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const body = parseBody(adminSettingsBody, req.body);
+    await upsertSettings({
+      id: newId('merchantSettings'),
+      merchant_id: req.params.id,
+      sub_merchant_id: null,
+      ...body,
+    });
+    const effective = await resolveEffectiveSettings(req.params.id, null);
+    res.json(success(effective, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+const adminCreateSubMerchantBody = z.object({
+  merchant_id: z.string().startsWith('mrc_'),
+  name: z.string().min(2),
+  code: z.string().optional(),
+  settlement_preference: z.enum(['daily', 'weekly', 'monthly', 'on_demand']).optional(),
+  settlement_destination: z.record(z.unknown()).optional(),
+  contact: z
+    .object({
+      name: z.string().optional(),
+      email: z.string().email().optional(),
+      phone: z.string().optional(),
+    })
+    .optional(),
+});
+
+/**
+ * POST /v1/admin/sub-merchants — create a sub-merchant on behalf of a merchant.
+ */
+router.post('/admin/sub-merchants', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const body = parseBody(adminCreateSubMerchantBody, req.body);
+    const sub = await createSubMerchant(body);
+    res.status(201).json(
+      success(
+        { id: sub.id, merchant_id: sub.merchant_id, status: sub.status },
+        { request_id: req.ogunContext.requestId },
+      ),
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /v1/admin/sub-merchants/:id/settings — sub-merchant settings override.
+ */
+router.patch('/admin/sub-merchants/:id/settings', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const body = parseBody(adminSettingsBody, req.body);
+    // Look up the sub to find its merchant_id (settings rows need both).
+    const { rows } = await query<{ merchant_id: string }>(
+      `SELECT merchant_id FROM sub_merchants WHERE id = $1`,
+      [req.params.id],
+    );
+    if (rows.length === 0) {
+      throw OgunError.notFound('SubMerchant', req.params.id);
+    }
+    await upsertSettings({
+      id: newId('merchantSettings'),
+      merchant_id: rows[0].merchant_id,
+      sub_merchant_id: req.params.id,
+      ...body,
+    });
+    const effective = await resolveEffectiveSettings(rows[0].merchant_id, req.params.id);
+    res.json(success(effective, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+const listSettlementsQuery = pagination.extend({
+  merchant_id: z.string().startsWith('mrc_').optional(),
+  sub_merchant_id: z.string().startsWith('smrc_').optional(),
+  status: z.string().optional(),
+});
+
+/**
+ * GET /v1/admin/settlements — cross-merchant settlement inspector.
+ * Mirrors the shape of `/admin/payouts` with bigint columns normalised to
+ * numbers in the response.
+ */
+router.get('/admin/settlements', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const parsed = parseQuery(listSettlementsQuery, req.query);
+    const { page, limit } = resolvePagination(parsed);
+    const where: string[] = [];
+    const vals: unknown[] = [];
+    let i = 1;
+    if (parsed.merchant_id) {
+      where.push(`merchant_id = $${i++}`);
+      vals.push(parsed.merchant_id);
+    }
+    if (parsed.sub_merchant_id) {
+      where.push(`sub_merchant_id = $${i++}`);
+      vals.push(parsed.sub_merchant_id);
+    }
+    if (parsed.status) {
+      where.push(`status = $${i++}`);
+      vals.push(parsed.status);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const offset = (page - 1) * limit;
+    const [{ rows: items }, { rows: totals }] = await Promise.all([
+      query(
+        `SELECT id, merchant_id, sub_merchant_id, period_start, period_end,
+                gross_amount, fee_amount, settlement_fee, refund_adjustment_amount,
+                other_adjustment_amount, net_amount, transaction_count,
+                status, payout_id, report_url, destination_summary, created_at, updated_at
+           FROM settlements ${whereSql}
+          ORDER BY created_at DESC
+          LIMIT $${i++} OFFSET $${i++}`,
+        [...vals, limit, offset],
+      ),
+      query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM settlements ${whereSql}`,
+        vals,
+      ),
+    ]);
+    const normalized = items.map((s: Record<string, unknown>) => ({
+      ...s,
+      gross_amount: Number(s.gross_amount),
+      fee_amount: Number(s.fee_amount),
+      settlement_fee: Number(s.settlement_fee),
+      refund_adjustment_amount: Number(s.refund_adjustment_amount),
+      other_adjustment_amount: Number(s.other_adjustment_amount),
+      net_amount: Number(s.net_amount),
+    }));
+    res.json(
+      paginated(normalized, page, limit, Number(totals[0]?.count ?? 0), req.ogunContext.requestId),
     );
   } catch (err) {
     next(err);

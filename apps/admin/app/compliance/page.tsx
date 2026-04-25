@@ -83,22 +83,35 @@ export default async function ComplianceListPage({
                 </td>
               </tr>
             )}
-            {result.items.map((m) => (
-              <tr key={m.id} className="hover:bg-ogun-bg/50">
-                <td className="mono">
-                  <Link href={`/compliance/${m.id}`} className="no-underline text-ogun-text hover:text-ogun-accent">
-                    {m.id}
-                  </Link>
-                </td>
-                <td>{m.legal_name}</td>
-                <td className="text-ogun-muted">{m.trading_name}</td>
-                <td>
-                  <Badge status={m.status} />
-                </td>
-                <td>{m.country}</td>
-                <td className="text-ogun-muted">{formatIsoDate(m.updated_at)}</td>
-              </tr>
-            ))}
+            {result.items.map((m) => {
+              // Active/suspended merchants go straight to the post-activation
+              // panel; all other statuses land in the onboarding wizard at
+              // the appropriate step.
+              const target =
+                m.status === 'active' || m.status === 'suspended'
+                  ? `/merchants/${m.id}`
+                  : `/merchants/onboarding/${m.id}`;
+              return (
+                <tr key={m.id} className="hover:bg-ogun-bg/50">
+                  <td className="mono">
+                    <Link href={target} className="no-underline text-ogun-text hover:text-ogun-accent">
+                      {m.id}
+                    </Link>
+                  </td>
+                  <td>
+                    <Link href={target} className="no-underline text-ogun-text hover:text-ogun-accent">
+                      {m.legal_name}
+                    </Link>
+                  </td>
+                  <td className="text-ogun-muted">{m.trading_name}</td>
+                  <td>
+                    <Badge status={m.status} />
+                  </td>
+                  <td>{m.country}</td>
+                  <td className="text-ogun-muted">{formatIsoDate(m.updated_at)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
