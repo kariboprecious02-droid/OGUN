@@ -67,7 +67,7 @@ async function handleCreate(formData: FormData): Promise<void> {
 
   try {
     const created = await createMerchantAsAdmin(input);
-    redirect(`/compliance/${created.id}`);
+    redirect(`/merchants/onboarding/${created.id}`);
   } catch (err) {
     if (err instanceof Error && err.message === 'NEXT_REDIRECT') throw err;
     const msg = encodeURIComponent(err instanceof Error ? err.message : 'create failed');
