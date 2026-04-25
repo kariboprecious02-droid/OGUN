@@ -1,12 +1,15 @@
 import { createApp } from './api/app';
 import { config } from './infra/config';
 import { logger } from './infra/logger';
+import { runMigrations } from './infra/db/migrate';
 import { tickPoller } from './modules/polling/polling.service';
 import { dispatchDelivery } from './modules/webhook/webhook.service';
 import { query } from './infra/db/pool';
 import { isWorkerModeEnabled, startWorkers, stopWorkers } from './infra/queue';
 
 async function main(): Promise<void> {
+  await runMigrations();
+
   const app = createApp();
 
   const server = app.listen(config.port, () => {

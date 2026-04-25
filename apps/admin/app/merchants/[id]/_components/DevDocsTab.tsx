@@ -189,14 +189,34 @@ function payoutMethods(baseUrl: string): MethodSpec[] {
 }
 
 const WEBHOOK_EVENTS = [
+  'merchant.activated',
+  'merchant.suspended',
   'collection.created',
   'collection.succeeded',
   'collection.failed',
+  'collection.refunded',
   'payout.created',
   'payout.succeeded',
   'payout.failed',
+  'payout.reversed',
   'settlement.paid',
+  'settlement.failed',
 ] as const;
+
+const EVENT_DESCRIPTIONS: Record<(typeof WEBHOOK_EVENTS)[number], string> = {
+  'merchant.activated': 'The merchant has been activated and can process transactions.',
+  'merchant.suspended': 'The merchant has been suspended by an admin.',
+  'collection.created': 'A new collection has been initiated.',
+  'collection.succeeded': 'A collection has been successfully completed.',
+  'collection.failed': 'A collection attempt has failed.',
+  'collection.refunded': 'A collection has been refunded to the payer.',
+  'payout.created': 'A new payout has been initiated.',
+  'payout.succeeded': 'A payout has been successfully completed.',
+  'payout.failed': 'A payout attempt has failed.',
+  'payout.reversed': 'A previously completed payout has been reversed.',
+  'settlement.paid': "A settlement has been paid out to the merchant's bank account.",
+  'settlement.failed': 'A settlement attempt has failed.',
+};
 
 // ---------- sub-components --------------------------------------------------
 
@@ -429,34 +449,12 @@ export function DevDocsTab({
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td className="mono whitespace-nowrap">collection.created</td>
-                  <td>A new collection has been initiated.</td>
-                </tr>
-                <tr>
-                  <td className="mono whitespace-nowrap">collection.succeeded</td>
-                  <td>A collection has been successfully completed.</td>
-                </tr>
-                <tr>
-                  <td className="mono whitespace-nowrap">collection.failed</td>
-                  <td>A collection attempt has failed.</td>
-                </tr>
-                <tr>
-                  <td className="mono whitespace-nowrap">payout.created</td>
-                  <td>A new payout has been initiated.</td>
-                </tr>
-                <tr>
-                  <td className="mono whitespace-nowrap">payout.succeeded</td>
-                  <td>A payout has been successfully completed.</td>
-                </tr>
-                <tr>
-                  <td className="mono whitespace-nowrap">payout.failed</td>
-                  <td>A payout attempt has failed.</td>
-                </tr>
-                <tr>
-                  <td className="mono whitespace-nowrap">settlement.paid</td>
-                  <td>A settlement has been paid out to the merchant&apos;s bank account.</td>
-                </tr>
+                {WEBHOOK_EVENTS.map((evt) => (
+                  <tr key={evt}>
+                    <td className="mono whitespace-nowrap">{evt}</td>
+                    <td>{EVENT_DESCRIPTIONS[evt]}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

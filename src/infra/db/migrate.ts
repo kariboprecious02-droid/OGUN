@@ -22,7 +22,7 @@ async function appliedMigrations(): Promise<Set<string>> {
   return new Set(rows.map((r) => r.name));
 }
 
-async function run(): Promise<void> {
+export async function runMigrations(): Promise<void> {
   await ensureMigrationsTable();
   const applied = await appliedMigrations();
   const files = readdirSync(MIGRATIONS_DIR)
@@ -44,9 +44,12 @@ async function run(): Promise<void> {
   logger.info('migrations complete');
 }
 
-run()
-  .catch((err) => {
-    logger.error({ err }, 'migration failed');
-    process.exitCode = 1;
-  })
-  .finally(() => closePool());
+// CLI entrypoint — run directly via `npm run migrate`
+if (require.main === module) {
+  runMigrations()
+    .catch((err) => {
+      logger.error({ err }, 'migration failed');
+      process.exitCode = 1;
+    })
+    .finally(() => closePool());
+}

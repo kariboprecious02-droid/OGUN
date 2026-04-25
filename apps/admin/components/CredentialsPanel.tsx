@@ -132,31 +132,39 @@ function FlashPanel({
 }) {
   const [secondsLeft, setSecondsLeft] = useState(FLASH_TTL_S);
   const dismissedRef = useRef(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    setSecondsLeft(FLASH_TTL_S);
     dismissedRef.current = false;
+    setSecondsLeft(FLASH_TTL_S);
 
-    const interval = setInterval(() => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => {
       setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
+        const next = prev - 1;
+        if (next <= 0) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          intervalRef.current = null;
           return 0;
         }
-        return prev - 1;
+        return next;
       });
-    }, 1000);
+    }, 1_000);
 
-    return () => clearInterval(interval);
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
   }, [flash.value]);
 
-  // Auto-dismiss when countdown reaches zero.
   useEffect(() => {
     if (secondsLeft === 0 && !dismissedRef.current) {
       dismissedRef.current = true;
       const fd = new FormData();
       fd.set('merchant_id', merchantId);
-      dismissFlashAction(fd);
+      dismissFlashAction(fd).catch(() => {});
     }
   }, [secondsLeft, merchantId, dismissFlashAction]);
 
