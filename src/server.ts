@@ -8,7 +8,11 @@ import { query } from './infra/db/pool';
 import { isWorkerModeEnabled, startWorkers, stopWorkers } from './infra/queue';
 
 async function main(): Promise<void> {
-  await runMigrations();
+  try {
+    await runMigrations();
+  } catch (err) {
+    logger.error({ err }, 'migrations failed on startup — server will start but DB operations may fail');
+  }
 
   const app = createApp();
 
