@@ -211,13 +211,13 @@ router.patch('/sub-merchants/:id', authenticate(), async (req, res, next) => {
  */
 const settingsBody = z
   .object({
-    collection_fee_pct: z.number().nonnegative().optional(),
+    collection_fee_pct: z.number().nonnegative().max(100).optional(),
     collection_fee_model: z.enum(['merchant_covers', 'payer_covers']).optional(),
-    payout_fee_pct: z.number().nonnegative().optional(),
+    payout_fee_pct: z.number().nonnegative().max(100).optional(),
     payout_fee_model: z.enum(['merchant_covers', 'recipient_covers']).optional(),
-    settlement_fee_pct: z.number().nonnegative().optional(),
+    settlement_fee_pct: z.number().nonnegative().max(100).optional(),
     notification_emails: z.array(z.string().email()).optional(),
-    enabled_methods: z.array(z.string()).optional(),
+    enabled_methods: z.array(z.enum(['mpesa', 'airtel', 'till', 'card', 'bank'])).optional(),
   })
   .strict();
 

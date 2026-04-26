@@ -280,6 +280,7 @@ function AccountsTab({
   const enabledCollSet = new Set(s.enabled_methods ?? []);
   const enabledPayoutSet = new Set(s.enabled_payout_methods ?? []);
   return (
+    <div className="space-y-4">
     <form action={panelSaveMerchantSettingsAction} className="space-y-6">
       <input type="hidden" name="merchant_id" value={merchantId} />
 
@@ -427,23 +428,25 @@ function AccountsTab({
         </div>
       </section>
 
-      <div className="flex items-center justify-between">
-        <form action={panelSendTestWebhookAction}>
-          <input type="hidden" name="merchant_id" value={merchantId} />
-          <button
-            type="submit"
-            className="btn text-xs"
-            disabled={!s.webhook_url}
-            title={s.webhook_url ? 'Send a test ping to the webhook URL' : 'Set a webhook URL first'}
-          >
-            Send test webhook
-          </button>
-        </form>
+      <div className="flex justify-end">
         <button type="submit" className="btn btn-primary">
           Save settings
         </button>
       </div>
     </form>
+
+    <form action={panelSendTestWebhookAction}>
+      <input type="hidden" name="merchant_id" value={merchantId} />
+      <button
+        type="submit"
+        className="btn text-xs"
+        disabled={!s.webhook_url}
+        title={s.webhook_url ? 'Send a test ping to the webhook URL' : 'Set a webhook URL first'}
+      >
+        Send test webhook
+      </button>
+    </form>
+    </div>
   );
 }
 
