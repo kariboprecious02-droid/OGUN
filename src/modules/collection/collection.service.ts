@@ -41,6 +41,8 @@ import {
   isTerminal,
 } from './collection.types';
 import { pickCollectionProvider, getCollectionConnector } from '@/modules/connectors/registry';
+import { recordCollectionEvent } from '@/modules/observability/collectionEvents';
+import { setContextField } from '@/infra/requestContext';
 import { findWalletBySub, lockWalletForUpdate } from '@/modules/wallet/wallet.repository';
 import { postLedgerEntry } from '@/modules/wallet/ledger';
 import { LedgerTxType } from '@/modules/wallet/wallet.types';
@@ -117,6 +119,32 @@ export async function createCollection(
     idempotency_key: input.idempotency_key ?? null,
   });
 
+  setContextField('collection_id', row.id);
+
+  recordCollectionEvent({
+    collection_id: row.id,
+    event_type: 'api.received',
+    source: 'api',
+    payload: { amount: input.amount, method: input.method, currency: input.currency },
+    message: `POST /v1/collections received for ${input.method}`,
+  });
+
+  recordCollectionEvent({
+    collection_id: row.id,
+    event_type: 'api.validated',
+    source: 'api',
+    payload: { merchant_id: merchant.id, sub_merchant_id: sub.id, fee_model: feeSnapshot.model },
+    message: 'request validated, fees computed',
+  });
+
+  recordCollectionEvent({
+    collection_id: row.id,
+    event_type: 'db.created',
+    source: 'orchestrator',
+    payload: { id: row.id, provider, business_status: row.business_status },
+    message: `collection row created, provider=${provider}`,
+  });
+
   const dispatchResult = await dispatchToProviderSync(row);
 
   await emitEvent({
@@ -162,6 +190,11 @@ function mapNextAction(connectorAction: string | null, normalizedStatus: string)
 
 async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResult> {
   const connector = getCollectionConnector(row.provider);
+  const dispatchStart = Date.now();
+
+  logger.info({ collection_id: row.id, provider: row.provider, method: row.method },
+    'dispatching to provider');
+
   let result;
   try {
     result = await connector.initiateCollection({
@@ -179,7 +212,19 @@ async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResul
       callback_url: `${config.baseUrls.api}/webhooks/${row.provider}`,
     });
   } catch (err) {
-    logger.error({ err, collection_id: row.id }, 'provider dispatch timed out or errored');
+    const latencyMs = Date.now() - dispatchStart;
+    logger.error({ err, collection_id: row.id, latency_ms: latencyMs },
+      'provider dispatch timed out or errored');
+
+    recordCollectionEvent({
+      collection_id: row.id,
+      event_type: 'provider.timed_out',
+      source: 'orchestrator',
+      latency_ms: latencyMs,
+      payload: { next_action: null, err_message: (err as Error).message },
+      message: `provider dispatch failed after ${latencyMs}ms`,
+    });
+
     return {
       business_status: CollectionBusinessStatus.Pending,
       provider_call_state: 'timed_out',
@@ -188,6 +233,15 @@ async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResul
       failure_reason: null,
     };
   }
+
+  const dispatchLatencyMs = Date.now() - dispatchStart;
+  logger.info({
+    collection_id: row.id,
+    provider: row.provider,
+    normalized_status: result.normalized_status,
+    provider_reference: result.provider_reference,
+    latency_ms: dispatchLatencyMs,
+  }, 'provider dispatch returned');
 
   await withTransaction(async (client) => {
     const locked = await lockCollection(client, row.id);
@@ -222,6 +276,20 @@ async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResul
         normalized_status: result.normalized_status,
       },
     });
+
+    recordCollectionEvent({
+      collection_id: row.id,
+      event_type: 'state.changed',
+      source: 'orchestrator',
+      latency_ms: dispatchLatencyMs,
+      payload: {
+        from: row.internal_status,
+        to: nextInternal,
+        provider_reference: result.provider_reference,
+        normalized_status: result.normalized_status,
+      },
+      message: `${row.internal_status} → ${nextInternal}`,
+    });
   });
 
   if (result.next_action !== null && result.normalized_status !== 'failed') {
@@ -230,6 +298,27 @@ async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResul
       referenceId: row.id,
       providerReference: result.provider_reference,
       provider: row.provider,
+    });
+
+    recordCollectionEvent({
+      collection_id: row.id,
+      event_type: 'polling.enqueued',
+      source: 'orchestrator',
+      payload: { provider_reference: result.provider_reference, provider: row.provider },
+      message: 'polling job enqueued',
+    });
+  } else if (result.normalized_status !== 'failed') {
+    recordCollectionEvent({
+      collection_id: row.id,
+      event_type: 'polling.skipped',
+      source: 'orchestrator',
+      payload: {
+        reason: 'next_action_null',
+        next_action: result.next_action,
+        normalized_status: result.normalized_status,
+        provider_call_state: 'timed_out',
+      },
+      message: 'polling NOT enqueued: next_action is null (see audit §3)',
     });
   }
 
@@ -393,6 +482,19 @@ export async function resolveCollection(
       new_business_status: nextBusiness,
       provider_payload_hash: input.payloadHash ?? null,
       details: { failure_reason: input.failureReason },
+    });
+
+    recordCollectionEvent({
+      collection_id: row.id,
+      event_type: 'state.changed',
+      source: input.source === 'webhook' ? 'webhook' : input.source === 'poller' ? 'poller' : 'orchestrator',
+      payload: {
+        from: row.internal_status,
+        to: nextInternal,
+        source: input.source,
+        failure_reason: input.failureReason,
+      },
+      message: `${row.internal_status} → ${nextInternal} (via ${input.source})`,
     });
 
     return { ...row, ...patch } as CollectionRow;

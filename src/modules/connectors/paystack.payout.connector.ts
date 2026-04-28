@@ -12,6 +12,7 @@ import crypto from 'node:crypto';
 import { config } from '@/infra/config';
 import { logger } from '@/infra/logger';
 import { timingSafeEquals } from '@/infra/crypto';
+import { attachPaystackInterceptors } from './paystackInterceptors';
 import {
   PayoutConnector,
   PayoutConnectorRequest,
@@ -35,6 +36,7 @@ export class PaystackPayoutConnector implements PayoutConnector {
         'Content-Type': 'application/json',
       },
     });
+    attachPaystackInterceptors(this.http, 'paystack-payout');
   }
 
   /**

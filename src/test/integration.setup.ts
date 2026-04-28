@@ -17,7 +17,7 @@
  * tables between tests. Redis is flushed between tests as well.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { getPool, closePool } from '@/infra/db/pool';
 import { getRedis, closeRedis } from '@/infra/redis';
@@ -25,19 +25,21 @@ import { drainAsync } from '@/infra/asyncTracker';
 
 export const INTEGRATION_ENABLED = process.env.RUN_INTEGRATION === '1';
 
-const MIGRATION_FILE = path.join(
-  __dirname,
-  '../infra/db/migrations/0001_initial_schema.sql',
-);
+const MIGRATIONS_DIR = path.join(__dirname, '../infra/db/migrations');
 
 /**
- * Apply the migration idempotently. Call from `beforeAll`.
+ * Apply all migrations idempotently. Call from `beforeAll`.
  */
 export async function setupIntegrationSchema(): Promise<void> {
   if (!INTEGRATION_ENABLED) return;
   const pool = getPool();
-  const sql = readFileSync(MIGRATION_FILE, 'utf8');
-  await pool.query(sql);
+  const files = readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  for (const file of files) {
+    const sql = readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
+    await pool.query(sql);
+  }
 }
 
 /**
