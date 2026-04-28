@@ -21,6 +21,13 @@ import {
   ParsedWebhook,
 } from './types';
 
+function normalizeKEPhone(phone: string): string {
+  let p = phone.replace(/[\s\-()]/g, '');
+  if (p.startsWith('+254')) p = '0' + p.slice(4);
+  else if (p.startsWith('254') && p.length >= 12) p = '0' + p.slice(3);
+  return p;
+}
+
 export class PaystackCollectionConnector implements CollectionConnector {
   readonly name = 'paystack';
   readonly supportedMethods = ['mpesa', 'airtel', 'till', 'card', 'bank'];
@@ -30,7 +37,7 @@ export class PaystackCollectionConnector implements CollectionConnector {
   constructor() {
     this.http = axios.create({
       baseURL: config.paystack.baseUrl,
-      timeout: 15_000,
+      timeout: 10_000,
       headers: {
         Authorization: `Bearer ${config.paystack.secretKey}`,
         'Content-Type': 'application/json',
@@ -70,7 +77,7 @@ export class PaystackCollectionConnector implements CollectionConnector {
       amount: req.amount,
       currency: req.currency,
       mobile_money: {
-        phone: req.customer.phone,
+        phone: normalizeKEPhone(req.customer.phone),
         provider,
       },
       reference: req.collection_id,

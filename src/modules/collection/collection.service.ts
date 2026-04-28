@@ -46,7 +46,7 @@ import { postLedgerEntry } from '@/modules/wallet/ledger';
 import { LedgerTxType } from '@/modules/wallet/wallet.types';
 import { enqueuePollingJob } from '@/modules/polling/polling.service';
 import { emitEvent } from '@/modules/webhook/webhook.service';
-import { trackAsync } from '@/infra/asyncTracker';
+
 
 export type CreateCollectionInput = {
   merchant_id: string;
@@ -63,6 +63,10 @@ export type CreateCollectionInput = {
 export type CreateCollectionResult = {
   collection: CollectionRow;
   business_status: CollectionBusinessStatusValue;
+  provider_call_state: 'completed' | 'timed_out' | 'error' | null;
+  next_action: string | null;
+  provider_message: string | null;
+  failure_reason: string | null;
 };
 
 export async function createCollection(
@@ -113,14 +117,7 @@ export async function createCollection(
     idempotency_key: input.idempotency_key ?? null,
   });
 
-  // Dispatch to provider asynchronously (but in-line for MVP simplicity).
-  // Production: this is offloaded to a BullMQ job via the outbox pattern.
-  // Tests can await drainAsync() to wait for all in-flight dispatches.
-  trackAsync(
-    dispatchToProvider(row.id).catch((err) => {
-      logger.error({ err, collection_id: row.id }, 'provider dispatch failed');
-    }),
-  );
+  const dispatchResult = await dispatchToProviderSync(row);
 
   await emitEvent({
     merchantId: merchant.id,
@@ -132,43 +129,74 @@ export async function createCollection(
       amount: row.amount,
       currency: row.currency,
       method: row.method,
-      business_status: row.business_status,
+      business_status: dispatchResult.business_status,
       reference: row.merchant_reference,
     },
   });
 
-  return { collection: row, business_status: row.business_status };
+  const updated = await findCollection(row.id);
+  return {
+    collection: updated ?? row,
+    business_status: dispatchResult.business_status,
+    provider_call_state: dispatchResult.provider_call_state,
+    next_action: dispatchResult.next_action,
+    provider_message: dispatchResult.provider_message,
+    failure_reason: dispatchResult.failure_reason,
+  };
 }
 
-async function dispatchToProvider(collectionId: string): Promise<void> {
-  const row = await findCollection(collectionId);
-  if (!row) return;
+type DispatchResult = {
+  business_status: CollectionBusinessStatusValue;
+  provider_call_state: 'completed' | 'timed_out' | 'error';
+  next_action: string | null;
+  provider_message: string | null;
+  failure_reason: string | null;
+};
+
+function mapNextAction(connectorAction: string | null, normalizedStatus: string): string | null {
+  if (normalizedStatus === 'failed') return null;
+  if (connectorAction === 'redirect') return 'redirect';
+  if (connectorAction === 'wait') return 'otp_required';
+  return connectorAction;
+}
+
+async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResult> {
   const connector = getCollectionConnector(row.provider);
-  const result = await connector.initiateCollection({
-    collection_id: row.id,
-    amount: row.customer_amount,
-    currency: row.currency,
-    method: row.method,
-    customer: {
-      phone: row.customer_phone,
-      name: row.customer_name ?? undefined,
-      email: row.customer_email ?? undefined,
-    },
-    reference: row.merchant_reference ?? row.id,
-    metadata: row.metadata ?? undefined,
-    callback_url: `${config.baseUrls.api}/webhooks/${row.provider}`,
-  });
+  let result;
+  try {
+    result = await connector.initiateCollection({
+      collection_id: row.id,
+      amount: row.customer_amount,
+      currency: row.currency,
+      method: row.method,
+      customer: {
+        phone: row.customer_phone,
+        name: row.customer_name ?? undefined,
+        email: row.customer_email ?? undefined,
+      },
+      reference: row.merchant_reference ?? row.id,
+      metadata: row.metadata ?? undefined,
+      callback_url: `${config.baseUrls.api}/webhooks/${row.provider}`,
+    });
+  } catch (err) {
+    logger.error({ err, collection_id: row.id }, 'provider dispatch timed out or errored');
+    return {
+      business_status: CollectionBusinessStatus.Pending,
+      provider_call_state: 'timed_out',
+      next_action: null,
+      provider_message: null,
+      failure_reason: null,
+    };
+  }
 
   await withTransaction(async (client) => {
     const locked = await lockCollection(client, row.id);
     if (isTerminal(locked.internal_status)) return;
 
-    // Dispatch NEVER writes a terminal status directly — terminal state
-    // flows exclusively through resolveCollection so the wallet-crediting
-    // path is the single source of truth. Here we only record that the
-    // provider accepted (or visibly rejected) the submission.
     const nextInternal: CollectionInternalStatusValue =
-      CollectionInternalStatus.PendingCustomerAction;
+      result.normalized_status === 'failed'
+        ? CollectionInternalStatus.Failed
+        : CollectionInternalStatus.PendingCustomerAction;
     const nextBusiness = toBusinessStatus(nextInternal);
     const submissionAt = new Date();
 
@@ -188,13 +216,15 @@ async function dispatchToProvider(collectionId: string): Promise<void> {
       new_internal_status: nextInternal,
       previous_business_status: row.business_status,
       new_business_status: nextBusiness,
-      details: { provider_reference: result.provider_reference, error_code: result.error_code },
+      details: {
+        provider_reference: result.provider_reference,
+        error_code: result.error_code,
+        normalized_status: result.normalized_status,
+      },
     });
   });
 
-  // Start polling (will stop early if terminal). Safe to call even on instant
-  // success because enqueuePollingJob is idempotent.
-  if (result.next_action !== null) {
+  if (result.next_action !== null && result.normalized_status !== 'failed') {
     await enqueuePollingJob({
       referenceType: 'collection',
       referenceId: row.id,
@@ -209,14 +239,38 @@ async function dispatchToProvider(collectionId: string): Promise<void> {
       normalizedStatus: 'succeeded',
       providerReference: result.provider_reference,
     });
-  } else if (result.normalized_status === 'failed') {
+    return {
+      business_status: CollectionBusinessStatus.Successful,
+      provider_call_state: 'completed',
+      next_action: null,
+      provider_message: null,
+      failure_reason: null,
+    };
+  }
+
+  if (result.normalized_status === 'failed') {
     await resolveCollection(row.id, {
       source: 'api',
       normalizedStatus: 'failed',
       providerReference: result.provider_reference,
       failureReason: result.error_code ?? 'provider_rejected',
     });
+    return {
+      business_status: CollectionBusinessStatus.Failed,
+      provider_call_state: 'completed',
+      next_action: null,
+      provider_message: result.error_message,
+      failure_reason: result.error_code ?? 'provider_rejected',
+    };
   }
+
+  return {
+    business_status: CollectionBusinessStatus.Pending,
+    provider_call_state: 'completed',
+    next_action: mapNextAction(result.next_action, result.normalized_status),
+    provider_message: result.error_message,
+    failure_reason: null,
+  };
 }
 
 /**

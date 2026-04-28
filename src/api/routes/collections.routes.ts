@@ -47,18 +47,22 @@ router.post(
         ...body,
         idempotency_key: req.ogunContext.idempotencyKey,
       });
-      // List-style fields only (§5.6.1 response)
       res.status(201).json(
         success(
           {
             id: result.collection.id,
-            business_status: result.collection.business_status,
+            business_status: result.business_status,
             amount: result.collection.amount,
             fee_amount: result.collection.fee_amount,
             customer_amount: result.collection.customer_amount,
             currency: result.collection.currency,
             method: result.collection.method,
             provider: result.collection.provider,
+            provider_reference: result.collection.provider_reference ?? null,
+            provider_call_state: result.provider_call_state,
+            next_action: result.next_action,
+            provider_message: result.provider_message,
+            failure_reason: result.failure_reason,
             reference: result.collection.merchant_reference,
             created_at: result.collection.created_at,
           },
