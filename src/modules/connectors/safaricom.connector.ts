@@ -1,13 +1,16 @@
 /**
- * Safaricom Daraja connector for M-Pesa collections (§5.1).
+ * Safaricom Daraja connector for M-Pesa collections.
  *
- * Collections only — payouts go through Paystack in MVP.
+ * OPT-IN ONLY — Paystack is the default provider for all methods.
+ * To route M-Pesa through Daraja instead of Paystack, set:
+ *   COLLECTION_PROVIDER_OVERRIDES=mpesa=safaricom
+ *
  * Implements:
  *   - OAuth token fetching (cached in-process, expires 1h)
  *   - STK Push initiation
  *   - Transaction status query
- *   - Webhook signature validation (Safaricom delivers unsigned callbacks
- *     to the configured confirmation URL; we verify via the correlating
+ *   - Webhook callback parsing (Safaricom delivers unsigned callbacks
+ *     to the configured confirmation URL; verified via correlating
  *     CheckoutRequestID + host allowlist rather than HMAC).
  */
 

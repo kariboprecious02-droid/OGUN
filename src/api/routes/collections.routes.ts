@@ -22,7 +22,7 @@ const createBody = z.object({
   sub_merchant_id: z.string().startsWith('smrc_'),
   amount: z.number().int().positive(),
   currency: z.string().length(3),
-  method: z.enum(['mpesa', 'airtel', 'demo']),
+  method: z.enum(['mpesa', 'airtel', 'till', 'card', 'bank', 'demo']),
   customer: z.object({
     phone: z.string().min(6),
     name: z.string().optional(),

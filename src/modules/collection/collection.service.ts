@@ -53,7 +53,7 @@ export type CreateCollectionInput = {
   sub_merchant_id: string;
   amount: number;
   currency: string;
-  method: 'mpesa' | 'airtel' | 'demo';
+  method: 'mpesa' | 'airtel' | 'till' | 'card' | 'bank' | 'demo';
   customer: { phone: string; name?: string; email?: string };
   reference?: string;
   metadata?: Record<string, unknown>;

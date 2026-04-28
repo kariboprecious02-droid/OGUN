@@ -90,12 +90,12 @@ export const config = {
 
   platform: {
     webhookSigningSalt: process.env.OGUN_WEBHOOK_SIGNING_SALT ?? 'dev-salt',
-    // Admin dashboard login secret. Separate from webhookSigningSalt so that
-    // rotating webhook crypto doesn't log admins out (and vice versa).
-    // Default 'changeme-set-in-prod' is a known placeholder for initial
-    // deployment; set OGUN_ADMIN_SECRET in Cloud Run env to override.
     adminSecret: process.env.OGUN_ADMIN_SECRET ?? 'changeme-set-in-prod',
     idempotencyTtlSeconds: int('OGUN_IDEMPOTENCY_TTL_SECONDS', 86400),
+  },
+
+  connectors: {
+    collectionProviderOverrides: process.env.COLLECTION_PROVIDER_OVERRIDES ?? '',
   },
 
   polling: {

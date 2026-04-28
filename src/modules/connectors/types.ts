@@ -53,7 +53,7 @@ export type ConnectorResult<S extends string = string> = {
   raw_payload: Record<string, unknown>;
   error_code: string | null;
   error_message: string | null;
-  next_action: 'wait' | 'poll' | 'retry' | 'escalate' | null;
+  next_action: 'wait' | 'poll' | 'retry' | 'escalate' | 'redirect' | null;
 };
 
 export type ParsedWebhook = {

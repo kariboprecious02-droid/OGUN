@@ -1,11 +1,12 @@
 /**
- * Connector registry — routes collection/payout requests to the right
- * provider per the locked product decisions (§1.1):
+ * Connector registry — routes collection/payout requests to the
+ * appropriate provider connector.
  *
- *   M-Pesa  → Safaricom direct
- *   Airtel  → Paystack
- *   Payouts → Paystack (mobile money + bank KEPSS)
- *   demo    → Demo simulator
+ * Default provider for all collection methods: Paystack.
+ * Override per-method via COLLECTION_PROVIDER_OVERRIDES env var
+ * (e.g., "mpesa=safaricom" to route M-Pesa to Daraja direct).
+ *
+ * Payouts route exclusively through Paystack.
  */
 
 import { CollectionConnector, PayoutConnector } from './types';
@@ -14,9 +15,26 @@ import { PaystackCollectionConnector } from './paystack.collection.connector';
 import { PaystackPayoutConnector } from './paystack.payout.connector';
 import { DemoCollectionConnector, DemoPayoutConnector } from './demo.connector';
 import { OgunError } from '@/infra/errors';
+import { config } from '@/infra/config';
 
 const collectionConnectors = new Map<string, CollectionConnector>();
 const payoutConnectors = new Map<string, PayoutConnector>();
+
+function parseOverrides(raw: string): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!raw) return map;
+  for (const pair of raw.split(',')) {
+    const [method, provider] = pair.split('=');
+    if (method?.trim() && provider?.trim()) {
+      map.set(method.trim(), provider.trim());
+    }
+  }
+  return map;
+}
+
+const collectionOverrides = parseOverrides(
+  config.connectors.collectionProviderOverrides,
+);
 
 export function initRegistry(): void {
   const safaricom = new SafaricomCollectionConnector();
@@ -33,33 +51,25 @@ export function initRegistry(): void {
 }
 
 export function pickCollectionProvider(method: string): {
-  provider: 'safaricom' | 'paystack' | 'demo';
+  provider: string;
   connector: CollectionConnector;
 } {
   if (!collectionConnectors.size) initRegistry();
-  switch (method) {
-    case 'mpesa': {
-      const c = collectionConnectors.get('safaricom');
-      if (!c) throw OgunError.methodNotEnabled(method);
-      return { provider: 'safaricom', connector: c };
-    }
-    case 'airtel': {
-      const c = collectionConnectors.get('paystack');
-      if (!c) throw OgunError.methodNotEnabled(method);
-      return { provider: 'paystack', connector: c };
-    }
-    case 'demo': {
-      const c = collectionConnectors.get('demo');
-      if (!c) throw OgunError.methodNotEnabled(method);
-      return { provider: 'demo', connector: c };
-    }
-    default:
-      throw OgunError.methodNotEnabled(method);
+
+  if (method === 'demo') {
+    const c = collectionConnectors.get('demo');
+    if (!c) throw OgunError.methodNotEnabled(method);
+    return { provider: 'demo', connector: c };
   }
+
+  const providerName = collectionOverrides.get(method) ?? 'paystack';
+  const c = collectionConnectors.get(providerName);
+  if (!c) throw OgunError.methodNotEnabled(method);
+  return { provider: providerName, connector: c };
 }
 
 export function pickPayoutProvider(method: string, envIsSandbox: boolean): {
-  provider: 'paystack' | 'demo';
+  provider: string;
   internalMethod: 'paystack_mobile_money' | 'paystack_kepss' | 'demo_payout';
   connector: PayoutConnector;
 } {

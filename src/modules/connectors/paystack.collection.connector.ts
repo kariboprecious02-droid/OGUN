@@ -1,8 +1,11 @@
 /**
- * Paystack connector for non-M-Pesa collections (§5.1).
+ * Paystack collection connector — default provider for all collection
+ * methods (M-Pesa, Airtel, Till, Card, Bank). Routes charges through
+ * Paystack's unified charge API.
  *
- * Used for Airtel Money and any other non-M-Pesa methods enabled
- * on a merchant.  M-Pesa never routes through Paystack.
+ * Mobile money methods (mpesa, airtel) use POST /charge with a
+ * mobile_money body. Card and bank use POST /transaction/initialize
+ * which returns an authorization URL for the payer.
  */
 
 import axios, { AxiosInstance } from 'axios';
@@ -20,7 +23,7 @@ import {
 
 export class PaystackCollectionConnector implements CollectionConnector {
   readonly name = 'paystack';
-  readonly supportedMethods = ['airtel'];
+  readonly supportedMethods = ['mpesa', 'airtel', 'till', 'card', 'bank'];
 
   private http: AxiosInstance;
 
@@ -39,34 +42,12 @@ export class PaystackCollectionConnector implements CollectionConnector {
     req: CollectionConnectorRequest,
   ): Promise<ConnectorResult<NormalizedCollectionStatus>> {
     try {
-      // Paystack "charge" endpoint for mobile money.
-      const body = {
-        email:
-          req.customer.email ??
-          `customer-${req.collection_id}@ogun.local`,
-        amount: req.amount, // kobo-equivalent (Paystack expects smallest unit)
-        currency: req.currency,
-        mobile_money: {
-          phone: req.customer.phone,
-          provider: req.method === 'airtel' ? 'airtel' : req.method,
-        },
-        reference: req.collection_id,
-        metadata: req.metadata ?? {},
-      };
-      const { data } = await this.http.post('/charge', body);
-      const resp = data as { status: boolean; data?: { reference?: string; status?: string; display_text?: string } };
-      const providerRef = resp.data?.reference ?? req.collection_id;
-      const s = resp.data?.status ?? (resp.status ? 'pending' : 'failed');
-      return {
-        normalized_status: this.mapPaystackChargeStatus(s),
-        provider_reference: providerRef,
-        raw_payload: resp as Record<string, unknown>,
-        error_code: resp.status ? null : 'paystack_error',
-        error_message: resp.status ? null : resp.data?.display_text ?? 'Charge failed',
-        next_action: resp.status ? 'wait' : 'escalate',
-      };
+      if (req.method === 'card' || req.method === 'bank') {
+        return this.initiateTransactionFlow(req);
+      }
+      return this.initiateMobileMoneyFlow(req);
     } catch (err) {
-      logger.error({ err }, 'paystack initiateCollection failed');
+      logger.error({ err, method: req.method }, 'paystack initiateCollection failed');
       return {
         normalized_status: 'failed',
         provider_reference: req.collection_id,
@@ -78,7 +59,74 @@ export class PaystackCollectionConnector implements CollectionConnector {
     }
   }
 
-  private mapPaystackChargeStatus(s: string): NormalizedCollectionStatus {
+  private async initiateMobileMoneyFlow(
+    req: CollectionConnectorRequest,
+  ): Promise<ConnectorResult<NormalizedCollectionStatus>> {
+    const provider = req.method === 'airtel' ? 'airtel' : 'mpesa';
+    const body = {
+      email:
+        req.customer.email ??
+        `customer-${req.collection_id}@ogun.local`,
+      amount: req.amount,
+      currency: req.currency,
+      mobile_money: {
+        phone: req.customer.phone,
+        provider,
+      },
+      reference: req.collection_id,
+      metadata: req.metadata ?? {},
+    };
+    const { data } = await this.http.post('/charge', body);
+    const resp = data as {
+      status: boolean;
+      data?: { reference?: string; status?: string; display_text?: string };
+    };
+    const providerRef = resp.data?.reference ?? req.collection_id;
+    const s = resp.data?.status ?? (resp.status ? 'pending' : 'failed');
+    return {
+      normalized_status: this.mapChargeStatus(s),
+      provider_reference: providerRef,
+      raw_payload: resp as Record<string, unknown>,
+      error_code: resp.status ? null : 'paystack_error',
+      error_message: resp.status ? null : resp.data?.display_text ?? 'Charge failed',
+      next_action: resp.status ? 'wait' : 'escalate',
+    };
+  }
+
+  private async initiateTransactionFlow(
+    req: CollectionConnectorRequest,
+  ): Promise<ConnectorResult<NormalizedCollectionStatus>> {
+    const body: Record<string, unknown> = {
+      email:
+        req.customer.email ??
+        `customer-${req.collection_id}@ogun.local`,
+      amount: req.amount,
+      currency: req.currency,
+      reference: req.collection_id,
+      metadata: req.metadata ?? {},
+      callback_url: req.callback_url,
+    };
+    if (req.method === 'bank') {
+      body.channels = ['bank_transfer'];
+    } else {
+      body.channels = ['card'];
+    }
+    const { data } = await this.http.post('/transaction/initialize', body);
+    const resp = data as {
+      status: boolean;
+      data?: { reference?: string; authorization_url?: string; access_code?: string };
+    };
+    return {
+      normalized_status: 'pending',
+      provider_reference: resp.data?.reference ?? req.collection_id,
+      raw_payload: resp as Record<string, unknown>,
+      error_code: resp.status ? null : 'paystack_error',
+      error_message: resp.status ? null : 'Transaction initialization failed',
+      next_action: resp.data?.authorization_url ? 'redirect' : 'wait',
+    };
+  }
+
+  private mapChargeStatus(s: string): NormalizedCollectionStatus {
     switch (s) {
       case 'success':
         return 'succeeded';
@@ -102,10 +150,12 @@ export class PaystackCollectionConnector implements CollectionConnector {
     providerRef: string,
   ): Promise<ConnectorResult<NormalizedCollectionStatus>> {
     try {
-      const { data } = await this.http.get(`/charge/${providerRef}`);
+      const { data } = await this.http.get(
+        `/transaction/verify/${providerRef}`,
+      );
       const resp = data as { data?: { status?: string } };
       return {
-        normalized_status: this.mapPaystackChargeStatus(resp.data?.status ?? 'pending'),
+        normalized_status: this.mapChargeStatus(resp.data?.status ?? 'pending'),
         provider_reference: providerRef,
         raw_payload: resp as Record<string, unknown>,
         error_code: null,
@@ -133,7 +183,7 @@ export class PaystackCollectionConnector implements CollectionConnector {
     let normalized: NormalizedCollectionStatus = 'pending';
     if (event === 'charge.success') normalized = 'succeeded';
     else if (event === 'charge.failed') normalized = 'failed';
-    else normalized = this.mapPaystackChargeStatus(body.data?.status ?? 'pending');
+    else normalized = this.mapChargeStatus(body.data?.status ?? 'pending');
 
     return {
       provider_reference: body.data?.reference ?? '',
