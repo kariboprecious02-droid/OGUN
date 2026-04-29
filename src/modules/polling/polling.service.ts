@@ -18,6 +18,7 @@ import {
   timeoutCollection,
 } from '@/modules/collection/collection.service';
 import { isTerminal } from '@/modules/collection/collection.types';
+import { recordCollectionEvent } from '@/modules/observability/collectionEvents';
 
 export type PollingJobRow = {
   id: string;
@@ -106,9 +107,15 @@ export async function tickPoller(now = new Date()): Promise<void> {
 }
 
 async function processJob(job: PollingJobRow, now: Date): Promise<void> {
-  // TTL check first
   if (job.ttl_expires_at <= now) {
     if (job.reference_type === 'collection') {
+      recordCollectionEvent({
+        collection_id: job.reference_id,
+        event_type: 'polling.timeout',
+        source: 'poller',
+        payload: { poll_count: job.poll_count, ttl_expires_at: job.ttl_expires_at.toISOString() },
+        message: `polling TTL expired after ${job.poll_count} ticks`,
+      });
       await timeoutCollection(job.reference_id);
     }
     await stopPollingJob(job.reference_type, job.reference_id, 'timeout');
@@ -152,7 +159,6 @@ async function processJob(job: PollingJobRow, now: Date): Promise<void> {
       return;
     }
 
-    // Still unresolved — schedule next poll
     const next = new Date(now.getTime() + config.polling.intervalSeconds * 1000);
     await query(
       `UPDATE polling_jobs
@@ -166,5 +172,17 @@ async function processJob(job: PollingJobRow, now: Date): Promise<void> {
         WHERE id = $1`,
       [row.id, now],
     );
+
+    recordCollectionEvent({
+      collection_id: row.id,
+      event_type: 'polling.tick',
+      source: 'poller',
+      payload: {
+        poll_count: job.poll_count + 1,
+        normalized_status: result.normalized_status,
+        next_poll_at: next.toISOString(),
+      },
+      message: `poll #${job.poll_count + 1}: still ${result.normalized_status}`,
+    });
   }
 }

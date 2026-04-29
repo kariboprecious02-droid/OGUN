@@ -13,6 +13,7 @@ import crypto from 'node:crypto';
 import { config } from '@/infra/config';
 import { logger } from '@/infra/logger';
 import { timingSafeEquals } from '@/infra/crypto';
+import { attachPaystackInterceptors } from './paystackInterceptors';
 import {
   CollectionConnector,
   CollectionConnectorRequest,
@@ -43,6 +44,7 @@ export class PaystackCollectionConnector implements CollectionConnector {
         'Content-Type': 'application/json',
       },
     });
+    attachPaystackInterceptors(this.http, 'paystack-collection');
   }
 
   async initiateCollection(

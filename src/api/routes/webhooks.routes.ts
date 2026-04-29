@@ -16,6 +16,7 @@ import {
 } from '@/modules/collection/collection.service';
 import { findPayoutByProviderRef, resolvePayout } from '@/modules/payout/payout.service';
 import { sha256Hex } from '@/infra/crypto';
+import { recordCollectionEvent } from '@/modules/observability/collectionEvents';
 
 const router = Router();
 
@@ -30,8 +31,22 @@ router.post('/webhooks/safaricom', raw({ type: 'application/json' }), async (req
     const collection = await findCollectionByProviderRef(parsed.provider_reference);
     if (!collection) {
       logger.warn({ ref: parsed.provider_reference }, 'unknown collection in safaricom webhook');
-      return res.status(200).send('ok'); // ack to prevent retries
+      return res.status(200).send('ok');
     }
+
+    recordCollectionEvent({
+      collection_id: collection.id,
+      event_type: 'webhook.received',
+      source: 'webhook',
+      payload: {
+        provider: 'safaricom',
+        provider_reference: parsed.provider_reference,
+        normalized_status: parsed.normalized_status,
+        failure_reason: parsed.failure_reason,
+      },
+      message: `safaricom webhook: ${parsed.normalized_status}`,
+    });
+
     if (parsed.normalized_status === 'succeeded' || parsed.normalized_status === 'failed') {
       await resolveCollection(collection.id, {
         source: 'webhook',
@@ -64,6 +79,20 @@ router.post('/webhooks/paystack', raw({ type: 'application/json' }), async (req,
       const parsed = connector.parseWebhook(payload, req.headers as Record<string, string>);
       const collection = await findCollectionByProviderRef(parsed.provider_reference);
       if (!collection) return res.status(200).send('ok');
+
+      recordCollectionEvent({
+        collection_id: collection.id,
+        event_type: 'webhook.received',
+        source: 'webhook',
+        payload: {
+          event,
+          provider_reference: parsed.provider_reference,
+          normalized_status: parsed.normalized_status,
+          failure_reason: parsed.failure_reason,
+        },
+        message: `paystack webhook: ${event} → ${parsed.normalized_status}`,
+      });
+
       if (parsed.normalized_status === 'succeeded' || parsed.normalized_status === 'failed') {
         await resolveCollection(collection.id, {
           source: 'webhook',

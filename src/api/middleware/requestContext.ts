@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { newId } from '@/infra/ids';
+import { runWithContext } from '@/infra/requestContext';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -19,5 +20,5 @@ export function requestContextMiddleware(req: Request, res: Response, next: Next
   req.ogunContext = { requestId, correlationId, idempotencyKey };
   res.setHeader('X-Request-Id', requestId);
   res.setHeader('X-Correlation-Id', correlationId);
-  next();
+  runWithContext({ request_id: requestId, correlation_id: correlationId }, () => next());
 }
