@@ -222,20 +222,22 @@ async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResul
       source: 'orchestrator',
       latency_ms: latencyMs,
       payload: { next_action: null, err_message: (err as Error).message },
-      message: `provider dispatch failed after ${latencyMs}ms`,
+      message: `provider dispatch threw after ${latencyMs}ms (catastrophic — connector inner catch did not handle)`,
+    });
+
+    await enqueuePollingJob({
+      referenceType: 'collection',
+      referenceId: row.id,
+      providerReference: null,
+      provider: row.provider,
     });
 
     recordCollectionEvent({
       collection_id: row.id,
-      event_type: 'polling.skipped',
+      event_type: 'polling.enqueued',
       source: 'orchestrator',
-      payload: {
-        reason: 'provider_call_timed_out',
-        next_action: null,
-        normalized_status: null,
-        provider_call_state: 'timed_out',
-      },
-      message: 'polling NOT enqueued: next_action is null after provider timed_out (audit §3)',
+      payload: { reason: 'catastrophic_throw', provider_reference: null },
+      message: 'polling enqueued after catastrophic throw — TTL will resolve to failed',
     });
 
     return {
@@ -305,7 +307,8 @@ async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResul
     });
   });
 
-  if (result.next_action !== null && result.normalized_status !== 'failed') {
+  const shouldPoll = result.next_action !== null && result.normalized_status !== 'failed';
+  if (shouldPoll) {
     await enqueuePollingJob({
       referenceType: 'collection',
       referenceId: row.id,
@@ -319,19 +322,6 @@ async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResul
       source: 'orchestrator',
       payload: { provider_reference: result.provider_reference, provider: row.provider },
       message: 'polling job enqueued',
-    });
-  } else if (result.normalized_status !== 'failed') {
-    recordCollectionEvent({
-      collection_id: row.id,
-      event_type: 'polling.skipped',
-      source: 'orchestrator',
-      payload: {
-        reason: 'next_action_null',
-        next_action: result.next_action,
-        normalized_status: result.normalized_status,
-        provider_call_state: 'timed_out',
-      },
-      message: 'polling NOT enqueued: next_action is null (see audit §3)',
     });
   }
 

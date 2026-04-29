@@ -24,8 +24,9 @@ import {
 
 function normalizeKEPhone(phone: string): string {
   let p = phone.replace(/[\s\-()]/g, '');
-  if (p.startsWith('+254')) p = '0' + p.slice(4);
-  else if (p.startsWith('254') && p.length >= 12) p = '0' + p.slice(3);
+  if (p.startsWith('+254')) return p;
+  if (p.startsWith('254') && p.length >= 12) return '+' + p;
+  if (p.startsWith('0') && p.length === 10) return '+254' + p.slice(1);
   return p;
 }
 
@@ -56,12 +57,30 @@ export class PaystackCollectionConnector implements CollectionConnector {
       }
       return this.initiateMobileMoneyFlow(req);
     } catch (err) {
-      logger.error({ err, method: req.method }, 'paystack initiateCollection failed');
+      const axiosErr = err as import('axios').AxiosError;
+      const hasResponse = !!axiosErr.response;
+      const status = axiosErr.response?.status;
+      const respData = axiosErr.response?.data as Record<string, unknown> | undefined;
+
+      logger.error({ err, method: req.method, status, err_code: axiosErr.code },
+        'paystack initiateCollection failed');
+
+      if (hasResponse && status && status >= 400 && status < 500) {
+        return {
+          normalized_status: 'failed',
+          provider_reference: req.collection_id,
+          raw_payload: { error: (err as Error).message, response: respData },
+          error_code: `paystack_${status}`,
+          error_message: (respData?.message as string) ?? 'Paystack rejected the request',
+          next_action: null,
+        };
+      }
+
       return {
         normalized_status: 'failed',
         provider_reference: req.collection_id,
-        raw_payload: { error: (err as Error).message },
-        error_code: 'provider_timeout',
+        raw_payload: { error: (err as Error).message, err_code: axiosErr.code },
+        error_code: axiosErr.code === 'ECONNABORTED' ? 'provider_timeout' : 'provider_error',
         error_message: 'Paystack charge request failed',
         next_action: 'escalate',
       };
@@ -76,6 +95,9 @@ export class PaystackCollectionConnector implements CollectionConnector {
       email:
         req.customer.email ??
         `customer-${req.collection_id}@ogun.local`,
+      // Paystack /charge expects subunits (cents for KES) per general API docs.
+      // TODO: verify KE mobile_money specifically — co-worker diagnostic
+      // flagged that M-Pesa docs example shows whole KES. If so, divide by 100.
       amount: req.amount,
       currency: req.currency,
       mobile_money: {

@@ -98,7 +98,7 @@ describeIntegration('collection_events lifecycle (PR-1 acceptance)', () => {
     expect(stateChanged?.message).toMatch(/failed/i);
   });
 
-  test('provider.timed_out path records polling.skipped (audit §3 regression)', async () => {
+  test('provider.timed_out path enqueues polling job (audit §3 Option A fix)', async () => {
     const { merchantId, subMerchantId } = await createActiveMerchantFixture({
       enabledMethods: ['mpesa'],
     });
@@ -128,10 +128,20 @@ describeIntegration('collection_events lifecycle (PR-1 acceptance)', () => {
     expect(types).toContain('api.validated');
     expect(types).toContain('db.created');
     expect(types).toContain('provider.timed_out');
-    expect(types).toContain('polling.skipped');
+    expect(types).toContain('polling.enqueued');
     expect(types.length).toBeGreaterThanOrEqual(5);
 
-    const skipped = events.find((e) => e.event_type === 'polling.skipped');
-    expect(skipped?.message).toMatch(/next_action.*null/i);
+    const enqueued = events.find((e) => e.event_type === 'polling.enqueued');
+    expect(enqueued?.message).toMatch(/timed_out/i);
+
+    // Verify a polling job was actually created (the audit §3 fix)
+    const { rows } = await getPool().query<{ status: string; provider_reference: string | null }>(
+      `SELECT status, provider_reference FROM polling_jobs
+        WHERE reference_id = $1`,
+      [result.collection.id],
+    );
+    expect(rows.length).toBe(1);
+    expect(rows[0].status).toBe('active');
+    expect(rows[0].provider_reference).toBeNull();
   });
 });
