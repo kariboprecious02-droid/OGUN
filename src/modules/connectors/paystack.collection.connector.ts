@@ -24,8 +24,9 @@ import {
 
 function normalizeKEPhone(phone: string): string {
   let p = phone.replace(/[\s\-()]/g, '');
-  if (p.startsWith('+254')) p = '0' + p.slice(4);
-  else if (p.startsWith('254') && p.length >= 12) p = '0' + p.slice(3);
+  if (p.startsWith('+254')) return p;
+  if (p.startsWith('254') && p.length >= 12) return '+' + p;
+  if (p.startsWith('0') && p.length === 10) return '+254' + p.slice(1);
   return p;
 }
 
@@ -94,6 +95,9 @@ export class PaystackCollectionConnector implements CollectionConnector {
       email:
         req.customer.email ??
         `customer-${req.collection_id}@ogun.local`,
+      // Paystack /charge expects subunits (cents for KES) per general API docs.
+      // TODO: verify KE mobile_money specifically — co-worker diagnostic
+      // flagged that M-Pesa docs example shows whole KES. If so, divide by 100.
       amount: req.amount,
       currency: req.currency,
       mobile_money: {
