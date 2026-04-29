@@ -225,17 +225,23 @@ async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResul
       message: `provider dispatch failed after ${latencyMs}ms`,
     });
 
+    await enqueuePollingJob({
+      referenceType: 'collection',
+      referenceId: row.id,
+      providerReference: null,
+      provider: row.provider,
+    });
+
     recordCollectionEvent({
       collection_id: row.id,
-      event_type: 'polling.skipped',
+      event_type: 'polling.enqueued',
       source: 'orchestrator',
       payload: {
-        reason: 'provider_call_timed_out',
-        next_action: null,
-        normalized_status: null,
-        provider_call_state: 'timed_out',
+        reason: 'provider_timed_out_fallback',
+        provider_reference: null,
+        provider: row.provider,
       },
-      message: 'polling NOT enqueued: next_action is null after provider timed_out (audit §3)',
+      message: 'polling enqueued after provider timed_out — TTL will resolve to failed (audit §3 Option A)',
     });
 
     return {
