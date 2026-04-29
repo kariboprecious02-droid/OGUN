@@ -70,7 +70,7 @@ export function attachPaystackInterceptors(http: AxiosInstance, connectorName: s
         latency_ms: ms,
         err_code: err.code,
         status: err.response?.status,
-        response_data: err.response?.data,
+        response_data: redactBody(err.response?.data),
         request_id: getRequestId(),
       }, `${connectorName} request failed`);
       return Promise.reject(err);

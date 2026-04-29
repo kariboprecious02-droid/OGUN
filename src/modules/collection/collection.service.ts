@@ -225,6 +225,19 @@ async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResul
       message: `provider dispatch failed after ${latencyMs}ms`,
     });
 
+    recordCollectionEvent({
+      collection_id: row.id,
+      event_type: 'polling.skipped',
+      source: 'orchestrator',
+      payload: {
+        reason: 'provider_call_timed_out',
+        next_action: null,
+        normalized_status: null,
+        provider_call_state: 'timed_out',
+      },
+      message: 'polling NOT enqueued: next_action is null after provider timed_out (audit §3)',
+    });
+
     return {
       business_status: CollectionBusinessStatus.Pending,
       provider_call_state: 'timed_out',
