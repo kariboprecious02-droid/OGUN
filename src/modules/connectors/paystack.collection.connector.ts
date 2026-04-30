@@ -94,7 +94,7 @@ export class PaystackCollectionConnector implements CollectionConnector {
     const body = {
       email:
         req.customer.email ??
-        `customer-${req.collection_id}@ogun.local`,
+        `customer-${req.collection_id}@ogun-pay.io`,
       // Paystack /charge expects subunits (cents for KES) per general API docs.
       // TODO: verify KE mobile_money specifically — co-worker diagnostic
       // flagged that M-Pesa docs example shows whole KES. If so, divide by 100.
@@ -130,7 +130,7 @@ export class PaystackCollectionConnector implements CollectionConnector {
     const body: Record<string, unknown> = {
       email:
         req.customer.email ??
-        `customer-${req.collection_id}@ogun.local`,
+        `customer-${req.collection_id}@ogun-pay.io`,
       amount: req.amount,
       currency: req.currency,
       reference: req.collection_id,
@@ -184,13 +184,15 @@ export class PaystackCollectionConnector implements CollectionConnector {
       const { data } = await this.http.get(
         `/transaction/verify/${providerRef}`,
       );
-      const resp = data as { data?: { status?: string } };
+      const resp = data as { data?: { status?: string; gateway_response?: string; reference?: string } };
+      const txStatus = resp.data?.status ?? 'pending';
+      const normalized = this.mapChargeStatus(txStatus);
       return {
-        normalized_status: this.mapChargeStatus(resp.data?.status ?? 'pending'),
-        provider_reference: providerRef,
+        normalized_status: normalized,
+        provider_reference: resp.data?.reference ?? providerRef,
         raw_payload: resp as Record<string, unknown>,
-        error_code: null,
-        error_message: null,
+        error_code: normalized === 'failed' ? `paystack_${txStatus}` : null,
+        error_message: resp.data?.gateway_response ?? null,
         next_action: null,
       };
     } catch (err) {

@@ -149,11 +149,14 @@ async function processJob(job: PollingJobRow, now: Date): Promise<void> {
       return;
     }
     if (result.normalized_status === 'failed') {
+      const reason = result.error_message
+        ? `${result.error_code ?? 'poller_reported_failure'}: ${result.error_message}`
+        : result.error_code ?? 'poller_reported_failure';
       await resolveCollection(row.id, {
         source: 'poller',
         normalizedStatus: 'failed',
         providerReference: result.provider_reference,
-        failureReason: result.error_code ?? 'poller_reported_failure',
+        failureReason: reason,
       });
       await stopPollingJob(job.reference_type, job.reference_id, 'failed');
       return;
