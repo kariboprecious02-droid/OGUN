@@ -47,15 +47,18 @@ export function attachPaystackInterceptors(http: AxiosInstance, connectorName: s
     (res: AxiosResponse) => {
       const startedAt = (res.config as unknown as Record<string, unknown>)['_ogun_started_at'];
       const ms = typeof startedAt === 'number' ? Date.now() - startedAt : undefined;
+      const txData = res.data?.data as Record<string, unknown> | undefined;
       logger.info({
         target: connectorName,
         method: res.config.method,
         url: res.config.url,
         status: res.status,
         latency_ms: ms,
-        provider_status: res.data?.status,
-        provider_message: res.data?.message,
-        provider_reference: res.data?.data?.reference,
+        provider_status: txData?.status ?? res.data?.status,
+        provider_message: txData?.gateway_response ?? res.data?.message,
+        provider_reference: txData?.reference ?? res.data?.data?.reference,
+        provider_call_state: txData?.status,
+        response_data: redactBody(res.data),
         request_id: getRequestId(),
       }, `${connectorName} response`);
       return res;
