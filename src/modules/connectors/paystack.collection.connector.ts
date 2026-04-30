@@ -94,7 +94,7 @@ export class PaystackCollectionConnector implements CollectionConnector {
     const body = {
       email:
         req.customer.email ??
-        `customer-${req.collection_id}@ogun.local`,
+        `customer-${req.collection_id}@ogun-pay.io`,
       // Paystack /charge expects subunits (cents for KES) per general API docs.
       // TODO: verify KE mobile_money specifically — co-worker diagnostic
       // flagged that M-Pesa docs example shows whole KES. If so, divide by 100.
@@ -130,7 +130,7 @@ export class PaystackCollectionConnector implements CollectionConnector {
     const body: Record<string, unknown> = {
       email:
         req.customer.email ??
-        `customer-${req.collection_id}@ogun.local`,
+        `customer-${req.collection_id}@ogun-pay.io`,
       amount: req.amount,
       currency: req.currency,
       reference: req.collection_id,
