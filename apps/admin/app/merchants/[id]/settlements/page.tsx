@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
-import { getMerchantDetail, listSettlements, OgunApiError } from '@/lib/api';
+import { getMerchantDetail, listSettlements, listCollections, OgunApiError } from '@/lib/api';
 import { PanelChrome } from '../_components/PanelChrome';
 import { Badge, formatIsoDate } from '@/components/Badge';
 
@@ -18,7 +18,10 @@ export default async function MerchantSettlementsTab({
     if (err instanceof OgunApiError && err.status === 404) notFound();
     throw err;
   }
-  const result = await listSettlements({ merchant_id: id, limit: 50 });
+  const [result, collections] = await Promise.all([
+    listSettlements({ merchant_id: id, limit: 50 }),
+    listCollections({ merchant_id: id, business_status: 'successful', limit: 200 }),
+  ]);
 
   const grossCents = result.items.reduce(
     (acc, s) => acc + Number(s.gross_amount ?? 0),
@@ -30,15 +33,25 @@ export default async function MerchantSettlementsTab({
   );
   const settledCount = result.items.filter((s) => s.status === 'settled').length;
 
+  const eligibleItems = collections.items.filter((c) => c.settlement_eligible);
+  const pendingSettlementCents = eligibleItems
+    .reduce((acc, c) => acc + (Number(c.amount) - Number(c.fee_amount)), 0);
+  const pendingCount = eligibleItems.length;
+
   return (
     <PanelChrome
       merchant={detail.merchant}
       merchantId={id}
       currentTab="settlements"
     >
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <Kpi
-          label="Gross (last page)"
+          label="Pending settlement (net)"
+          value={`KES ${(pendingSettlementCents / 100).toLocaleString()}`}
+          sub={`${pendingCount} collection${pendingCount === 1 ? '' : 's'} eligible`}
+        />
+        <Kpi
+          label="Gross settled"
           value={`KES ${(grossCents / 100).toLocaleString()}`}
         />
         <Kpi
@@ -103,11 +116,12 @@ export default async function MerchantSettlementsTab({
   );
 }
 
-function Kpi({ label, value }: { label: string; value: string }): React.ReactElement {
+function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }): React.ReactElement {
   return (
     <div className="panel-padded">
       <div className="text-xs text-ogun-muted">{label}</div>
       <div className="text-xl font-semibold mt-1">{value}</div>
+      {sub && <div className="text-xs text-ogun-muted mt-0.5">{sub}</div>}
     </div>
   );
 }

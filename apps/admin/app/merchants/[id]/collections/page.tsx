@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
 import { getMerchantDetail, listCollections, OgunApiError } from '@/lib/api';
@@ -20,16 +21,19 @@ export default async function MerchantCollectionsTab({
   }
   const result = await listCollections({ merchant_id: id, limit: 50 });
 
-  // Aggregate KPIs from the visible page
-  const tpvCents = result.items.reduce(
+  const attemptVolumeCents = result.items.reduce(
     (acc, c) => acc + Number(c.amount ?? 0),
     0,
   );
-  const successCount = result.items.filter(
+  const successfulItems = result.items.filter(
     (c) => c.business_status === 'successful',
-  ).length;
+  );
+  const successVolumeCents = successfulItems.reduce(
+    (acc, c) => acc + (Number(c.amount) - Number(c.fee_amount)),
+    0,
+  );
   const successRate = result.items.length
-    ? successCount / result.items.length
+    ? successfulItems.length / result.items.length
     : 0;
 
   return (
@@ -38,10 +42,19 @@ export default async function MerchantCollectionsTab({
       merchantId={id}
       currentTab="collections"
     >
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <Kpi label="TPV (last page)" value={`KES ${(tpvCents / 100).toLocaleString()}`} />
-        <Kpi label="Total transactions" value={String(result.total)} />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <Kpi
+          label="Attempt volume"
+          value={`KES ${(attemptVolumeCents / 100).toLocaleString()}`}
+          sub={`${result.total} transaction${result.total === 1 ? '' : 's'}`}
+        />
+        <Kpi
+          label="Net successful volume"
+          value={`KES ${(successVolumeCents / 100).toLocaleString()}`}
+          sub={`${successfulItems.length} succeeded`}
+        />
         <Kpi label="Success rate" value={`${Math.round(successRate * 100)}%`} />
+        <Kpi label="Total transactions" value={String(result.total)} />
       </div>
 
       <div className="panel overflow-x-auto">
@@ -66,8 +79,15 @@ export default async function MerchantCollectionsTab({
               </tr>
             )}
             {result.items.map((c) => (
-              <tr key={c.id} className="border-t border-ogun-border">
-                <td className="mono text-xs">{c.id}</td>
+              <tr key={c.id} className="border-t border-ogun-border hover:bg-ogun-bg/50 cursor-pointer">
+                <td>
+                  <Link
+                    href={`/merchants/${id}/collections/${c.id}`}
+                    className="mono text-xs no-underline text-ogun-text hover:text-ogun-accent-on-dark"
+                  >
+                    {c.id}
+                  </Link>
+                </td>
                 <td>{c.method}</td>
                 <td>KES {(Number(c.amount) / 100).toLocaleString()}</td>
                 <td className="text-ogun-muted">
@@ -88,11 +108,12 @@ export default async function MerchantCollectionsTab({
   );
 }
 
-function Kpi({ label, value }: { label: string; value: string }): React.ReactElement {
+function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }): React.ReactElement {
   return (
     <div className="panel-padded">
       <div className="text-xs text-ogun-muted">{label}</div>
       <div className="text-xl font-semibold mt-1">{value}</div>
+      {sub && <div className="text-xs text-ogun-muted mt-0.5">{sub}</div>}
     </div>
   );
 }

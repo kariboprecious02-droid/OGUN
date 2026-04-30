@@ -359,6 +359,36 @@ export async function listCollections(params: {
   return paged<CollectionSummary>(`/admin/collections?${qs.toString()}`);
 }
 
+export type CollectionDetail = CollectionSummary & {
+  customer_amount: number;
+  customer_name: string | null;
+  customer_email: string | null;
+  provider_reference: string | null;
+  provider_submission_at: string | null;
+  provider_call_state: string | null;
+  provider_message: string | null;
+  failure_reason: string | null;
+  webhook_received_at: string | null;
+  last_webhook_at: string | null;
+  poll_attempt_count: number;
+  polling_stop_reason: string | null;
+  last_polled_at: string | null;
+  wallet_credited_at: string | null;
+  settlement_eligible_at: string | null;
+  settlement_batch_id: string | null;
+  refunded_amount: number | null;
+  refund_timestamp: string | null;
+  refund_reference: string | null;
+  fee_snapshot: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+  idempotency_key: string | null;
+  updated_at: string;
+};
+
+export async function getCollectionDetail(id: string): Promise<CollectionDetail> {
+  return request<CollectionDetail>(`/admin/collections/${id}`);
+}
+
 export async function listPayouts(params: {
   page?: number;
   limit?: number;

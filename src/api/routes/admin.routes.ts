@@ -518,6 +518,28 @@ router.get('/admin/collections', async (req, res, next) => {
   }
 });
 
+router.get('/admin/collections/:id', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const { rows } = await query(
+      `SELECT * FROM collections WHERE id = $1`,
+      [req.params.id],
+    );
+    if (rows.length === 0) {
+      throw OgunError.notFound('Collection', req.params.id);
+    }
+    const c = rows[0] as Record<string, unknown>;
+    res.json(success({
+      ...c,
+      amount: Number(c.amount),
+      fee_amount: Number(c.fee_amount),
+      customer_amount: Number(c.customer_amount),
+    }, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * GET /v1/admin/payouts — cross-merchant payout inspector.
  */
