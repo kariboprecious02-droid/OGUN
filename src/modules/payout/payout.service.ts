@@ -43,6 +43,7 @@ import { PayoutRow, PayoutStatus, PayoutStatusValue, isPayoutTerminal } from './
 import {
   findBeneficiary,
   insertBeneficiary,
+  updateBeneficiary,
   BeneficiaryRow,
 } from './beneficiary.repository';
 import { emitEvent } from '@/modules/webhook/webhook.service';
@@ -212,6 +213,25 @@ async function dispatchPayout(payoutId: string, beneficiary: BeneficiaryRow): Pr
   const row = await findPayout(payoutId);
   if (!row) return;
   const connector = getPayoutConnector(row.provider);
+
+  if (!beneficiary.provider_recipient_code && row.provider === 'paystack') {
+    const { PaystackPayoutConnector } = await import('@/modules/connectors/paystack.payout.connector');
+    if (connector instanceof PaystackPayoutConnector) {
+      const recipientType = beneficiary.beneficiary_type === 'bank_account' ? 'kepss' as const : 'mobile_money' as const;
+      const recipientCode = await connector.resolveRecipient({
+        type: recipientType,
+        name: beneficiary.name,
+        account_number: beneficiary.account_number ?? beneficiary.mobile_number ?? '',
+        bank_code: beneficiary.bank_code ?? undefined,
+        currency: row.currency,
+      });
+      await updateBeneficiary(beneficiary.id, { provider_recipient_code: recipientCode });
+      beneficiary = { ...beneficiary, provider_recipient_code: recipientCode };
+      logger.info({ beneficiary_id: beneficiary.id, recipient_code: recipientCode },
+        'auto-resolved paystack recipient code');
+    }
+  }
+
   const result = await connector.initiatePayout({
     payout_id: row.id,
     amount: row.recipient_amount,
@@ -312,8 +332,22 @@ export async function resolvePayout(
         idempotencyKey: `payout_reversal_credit:${row.id}`,
         description: `Payout reversal ${row.id}`,
       });
-      // Fee reversal policy: §6.3 — default to ops review. We do NOT auto-
-      // reverse the fee debit in MVP. Ops can post manual_adjustment entries.
+      if (row.fee_amount > 0) {
+        await postLedgerEntry(client, {
+          merchantId: row.merchant_id,
+          subMerchantId: row.sub_merchant_id,
+          walletId: wallet.id,
+          walletType: 'payout',
+          transactionType: LedgerTxType.ManualAdjustment,
+          direction: 'credit',
+          amount: row.fee_amount,
+          currency: row.currency,
+          referenceType: 'payout',
+          referenceId: row.id,
+          idempotencyKey: `payout_fee_reversal:${row.id}`,
+          description: `Fee reversal for reversed payout ${row.id}`,
+        });
+      }
       await updatePayout(client, row.id, {
         status: PayoutStatus.Reversed,
         reversal_indicator: true,

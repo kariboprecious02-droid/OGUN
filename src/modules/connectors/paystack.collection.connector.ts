@@ -235,4 +235,29 @@ export class PaystackCollectionConnector implements CollectionConnector {
       .digest('hex');
     return timingSafeEquals(sig, computed);
   }
+
+  async refundTransaction(input: {
+    transaction_reference: string;
+    amount?: number;
+  }): Promise<{ status: boolean; refund_reference?: string; message?: string }> {
+    try {
+      const { data } = await this.http.post('/refund', {
+        transaction: input.transaction_reference,
+        ...(input.amount != null ? { amount: input.amount } : {}),
+      });
+      const resp = data as { status: boolean; data?: { transaction?: { reference?: string } }; message?: string };
+      return {
+        status: resp.status,
+        refund_reference: resp.data?.transaction?.reference,
+        message: resp.message,
+      };
+    } catch (err) {
+      const axiosErr = err as import('axios').AxiosError;
+      logger.error({ err, status: axiosErr.response?.status }, 'paystack refund failed');
+      return {
+        status: false,
+        message: (axiosErr.response?.data as Record<string, unknown>)?.message as string ?? 'refund request failed',
+      };
+    }
+  }
 }
