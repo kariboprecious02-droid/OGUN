@@ -79,25 +79,23 @@ export default async function MerchantCollectionsTab({
               </tr>
             )}
             {result.items.map((c) => (
-              <tr key={c.id} className="border-t border-ogun-border hover:bg-ogun-bg/50 cursor-pointer">
-                <td>
+              <tr
+                key={c.id}
+                className="border-t border-ogun-border hover:bg-ogun-bg/50 cursor-pointer"
+                onClick={undefined}
+              >
+                <td colSpan={6} className="p-0">
                   <Link
                     href={`/merchants/${id}/collections/${c.id}`}
-                    className="mono text-xs no-underline text-ogun-text hover:text-ogun-accent-on-dark"
+                    className="no-underline text-ogun-text flex"
                   >
-                    {c.id}
+                    <span className="mono text-xs px-3 py-2 flex-shrink-0 w-[280px]">{c.id}</span>
+                    <span className="px-3 py-2 flex-shrink-0 w-[80px]">{c.method}</span>
+                    <span className="px-3 py-2 flex-shrink-0 w-[100px]">KES {(Number(c.amount) / 100).toLocaleString()}</span>
+                    <span className="px-3 py-2 flex-shrink-0 w-[100px] text-ogun-muted">KES {(Number(c.fee_amount) / 100).toLocaleString()}</span>
+                    <span className="px-3 py-2 flex-shrink-0 w-[100px]"><Badge status={c.business_status} /></span>
+                    <span className="px-3 py-2 flex-1 text-xs text-ogun-muted">{formatIsoDate(c.created_at)}</span>
                   </Link>
-                </td>
-                <td>{c.method}</td>
-                <td>KES {(Number(c.amount) / 100).toLocaleString()}</td>
-                <td className="text-ogun-muted">
-                  KES {(Number(c.fee_amount) / 100).toLocaleString()}
-                </td>
-                <td>
-                  <Badge status={c.business_status} />
-                </td>
-                <td className="text-xs text-ogun-muted">
-                  {formatIsoDate(c.created_at)}
                 </td>
               </tr>
             ))}
