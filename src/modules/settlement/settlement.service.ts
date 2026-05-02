@@ -206,7 +206,7 @@ export async function executeSettlement(settlementId: string): Promise<'paid' | 
   if (!settlement) throw OgunError.notFound('Settlement', settlementId);
   const netAmount = Number(settlement.net_amount);
 
-  const result = await withTransaction(async (client): Promise<'paid' | 'failed'> => {
+  let result = await withTransaction(async (client): Promise<'paid' | 'failed'> => {
     const wallet = await findWalletBySub(settlement.sub_merchant_id, 'collection');
     if (!wallet) throw new Error(`No collection wallet for ${settlement.sub_merchant_id}`);
     const locked = await lockWalletForUpdate(client, wallet.id);
@@ -290,7 +290,12 @@ export async function executeSettlement(settlementId: string): Promise<'paid' | 
       const { dispatchSettlementPayout } = await import('./dispatch');
       await dispatchSettlementPayout(settlementId);
     } catch (err) {
-      logger.error({ err, settlementId }, 'settlement payout dispatch failed');
+      logger.error({ err, settlementId }, 'settlement payout dispatch failed — marking settlement as failed');
+      await query(
+        `UPDATE settlements SET status = 'failed', updated_at = now() WHERE id = $1`,
+        [settlementId],
+      );
+      result = 'failed';
     }
 
     await emitEvent({

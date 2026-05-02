@@ -715,26 +715,42 @@ export async function refundCollection(input: {
     return { ...row, refunded_amount: totalRefunded } as CollectionRow;
   });
 
-  // Emit webhook for full refunds only — partial refunds are also worth
-  // an event, but we keep the emitted types aligned to §8.1 which lists
-  // only collection.refunded.
   const finalRow = await findCollection(input.collection_id);
-  if (finalRow && finalRow.business_status === 'refunded') {
-    await emitEvent({
-      merchantId: finalRow.merchant_id,
-      type: 'collection.refunded',
-      data: {
+  if (!finalRow) return updated;
+
+  if (finalRow.provider === 'paystack' && finalRow.provider_reference) {
+    try {
+      const connector = getCollectionConnector('paystack') as import('@/modules/connectors/paystack.collection.connector').PaystackCollectionConnector;
+      const refundResult = await connector.refundTransaction({
+        transaction_reference: finalRow.provider_reference,
+        amount: input.amount,
+      });
+      logger.info({
         collection_id: finalRow.id,
-        merchant_id: finalRow.merchant_id,
-        sub_merchant_id: finalRow.sub_merchant_id,
-        amount: finalRow.amount,
-        business_status: 'refunded',
-        refund_amount: finalRow.refunded_amount,
-        reference: finalRow.merchant_reference,
-      },
-    });
+        refund_status: refundResult.status,
+        refund_reference: refundResult.refund_reference,
+      }, 'paystack refund dispatched');
+    } catch (err) {
+      logger.error({ err, collection_id: finalRow.id }, 'paystack refund dispatch failed');
+    }
   }
-  return finalRow ?? updated;
+
+  await emitEvent({
+    merchantId: finalRow.merchant_id,
+    type: 'collection.refunded',
+    data: {
+      collection_id: finalRow.id,
+      merchant_id: finalRow.merchant_id,
+      sub_merchant_id: finalRow.sub_merchant_id,
+      amount: finalRow.amount,
+      business_status: finalRow.business_status,
+      refund_amount: finalRow.refunded_amount,
+      refund_type: (finalRow.refunded_amount ?? 0) >= finalRow.amount ? 'full' : 'partial',
+      reference: finalRow.merchant_reference,
+    },
+  });
+
+  return finalRow;
 }
 
 /**
