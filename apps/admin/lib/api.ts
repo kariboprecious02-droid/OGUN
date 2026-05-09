@@ -389,6 +389,43 @@ export async function getCollectionDetail(id: string): Promise<CollectionDetail>
   return request<CollectionDetail>(`/admin/collections/${id}`);
 }
 
+export type CollectionLogs = {
+  events: Array<{
+    id: string;
+    event_type: string;
+    source: string;
+    http_status: number | null;
+    latency_ms: number | null;
+    payload: Record<string, unknown>;
+    message: string | null;
+    occurred_at: string;
+  }>;
+  webhookEvents: Array<{
+    id: string;
+    event_type: string;
+    raw_payload: Record<string, unknown>;
+    signature_valid: boolean;
+    http_status_returned: number;
+    received_at: string;
+  }>;
+  webhookDeliveries: Array<{
+    id: string;
+    event_type: string;
+    payload: Record<string, unknown>;
+    delivery_status: string;
+    http_status: number | null;
+    response_body: string | null;
+    created_at: string;
+    delivered_at: string | null;
+    retry_count: number;
+    url: string;
+  }>;
+};
+
+export async function getCollectionLogs(id: string): Promise<CollectionLogs> {
+  return request<CollectionLogs>(`/admin/collections/${id}/logs`);
+}
+
 export async function listPayouts(params: {
   page?: number;
   limit?: number;

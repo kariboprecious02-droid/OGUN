@@ -87,7 +87,10 @@ export default async function MerchantSettlementsTab({
             {result.items.map((s) => (
               <tr key={s.id} className="border-t border-ogun-border">
                 <td className="mono text-xs">{s.id}</td>
-                <td className="mono text-xs">{s.sub_merchant_id}</td>
+                <td>
+                  <div className="text-sm">{(s as Record<string, unknown>).sub_merchant_name as string ?? s.sub_merchant_id}</div>
+                  <div className="mono text-xs text-ogun-muted">{s.sub_merchant_id}</div>
+                </td>
                 <td className="text-xs text-ogun-muted">
                   {formatIsoDate(s.period_start)} →{' '}
                   {formatIsoDate(s.period_end)}

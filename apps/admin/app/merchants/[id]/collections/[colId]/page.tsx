@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
-import { getCollectionDetail, getMerchantDetail, OgunApiError, centsToKes } from '@/lib/api';
+import { getCollectionDetail, getCollectionLogs, getMerchantDetail, OgunApiError, centsToKes } from '@/lib/api';
 import { Nav } from '@/components/Nav';
 import { Badge, formatIsoDate } from '@/components/Badge';
 
@@ -74,15 +74,18 @@ export default async function CollectionDetailPage({
   let detail;
   let c;
   try {
-    [detail, c] = await Promise.all([
+    const [d, col] = await Promise.all([
       getMerchantDetail(id),
       getCollectionDetail(colId),
     ]);
+    detail = d;
+    c = col;
   } catch (err) {
     if (err instanceof OgunApiError && err.status === 404) notFound();
     throw err;
   }
 
+  const logs = await getCollectionLogs(colId).catch(() => ({ events: [], webhookEvents: [], webhookDeliveries: [] }));
   const { states, stopStep, stopReason } = deriveStepStates(c);
   const gross = centsToKes(c.amount);
   const fee = centsToKes(c.fee_amount);
@@ -237,6 +240,115 @@ export default async function CollectionDetailPage({
               </>
             )}
           </dl>
+        </section>
+
+        {/* Integration Logs */}
+        <section className="panel-padded mb-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+            Integration logs
+          </h2>
+
+          {logs.events.length === 0 && logs.webhookEvents.length === 0 && logs.webhookDeliveries.length === 0 ? (
+            <p className="text-sm text-ogun-muted">
+              Raw payload not captured (collection predates PR-7 deploy).
+            </p>
+          ) : (
+            <>
+              <div className="text-xs text-ogun-muted mb-2">
+                API calls &amp; lifecycle events ({logs.events.length})
+              </div>
+              <div className="overflow-x-auto mb-4">
+                <table className="table-default w-full text-xs">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Event</th>
+                      <th>Source</th>
+                      <th>HTTP</th>
+                      <th>Latency</th>
+                      <th>Message</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logs.events.map((e) => (
+                      <tr key={e.id} className="border-t border-ogun-border">
+                        <td className="whitespace-nowrap">{formatIsoDate(e.occurred_at)}</td>
+                        <td className="mono">{e.event_type}</td>
+                        <td>{e.source}</td>
+                        <td>{e.http_status ?? '—'}</td>
+                        <td>{e.latency_ms != null ? `${e.latency_ms}ms` : '—'}</td>
+                        <td className="text-ogun-muted max-w-[300px] truncate">{e.message ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {logs.webhookEvents.length > 0 && (
+                <>
+                  <div className="text-xs text-ogun-muted mb-2">
+                    Inbound Paystack webhooks ({logs.webhookEvents.length})
+                  </div>
+                  <div className="overflow-x-auto mb-4">
+                    <table className="table-default w-full text-xs">
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Event</th>
+                          <th>Signature</th>
+                          <th>HTTP</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {logs.webhookEvents.map((w) => (
+                          <tr key={w.id} className="border-t border-ogun-border">
+                            <td className="whitespace-nowrap">{formatIsoDate(w.received_at)}</td>
+                            <td className="mono">{w.event_type}</td>
+                            <td>{w.signature_valid ? '✓ valid' : '✗ invalid'}</td>
+                            <td>{w.http_status_returned}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              {logs.webhookDeliveries.length > 0 && (
+                <>
+                  <div className="text-xs text-ogun-muted mb-2">
+                    Outbound merchant webhooks ({logs.webhookDeliveries.length})
+                  </div>
+                  <div className="overflow-x-auto mb-4">
+                    <table className="table-default w-full text-xs">
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Event</th>
+                          <th>URL</th>
+                          <th>Status</th>
+                          <th>HTTP</th>
+                          <th>Retries</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {logs.webhookDeliveries.map((d) => (
+                          <tr key={d.id} className="border-t border-ogun-border">
+                            <td className="whitespace-nowrap">{formatIsoDate(d.created_at)}</td>
+                            <td className="mono">{d.event_type}</td>
+                            <td className="mono text-ogun-muted max-w-[200px] truncate">{d.url}</td>
+                            <td><Badge status={d.delivery_status} /></td>
+                            <td>{d.http_status ?? '—'}</td>
+                            <td>{d.retry_count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </section>
 
         {/* Raw data */}

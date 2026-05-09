@@ -522,7 +522,10 @@ router.get('/admin/collections/:id', async (req, res, next) => {
   try {
     requireAdmin(req);
     const { rows } = await query(
-      `SELECT * FROM collections WHERE id = $1`,
+      `SELECT c.*, sm.name AS sub_merchant_name
+         FROM collections c
+         LEFT JOIN sub_merchants sm ON sm.id = c.sub_merchant_id
+        WHERE c.id = $1`,
       [req.params.id],
     );
     if (rows.length === 0) {
@@ -535,6 +538,36 @@ router.get('/admin/collections/:id', async (req, res, next) => {
       fee_amount: Number(c.fee_amount),
       customer_amount: Number(c.customer_amount),
     }, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/admin/collections/:id/logs', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const [{ rows: events }, { rows: webhookEvents }, { rows: webhookDeliveries }] = await Promise.all([
+      query(
+        `SELECT id, event_type, source, http_status, latency_ms, payload, message, occurred_at
+           FROM collection_events WHERE collection_id = $1 ORDER BY occurred_at`,
+        [req.params.id],
+      ),
+      query(
+        `SELECT id, event_type, raw_payload, signature_valid, http_status_returned, received_at
+           FROM paystack_webhook_events WHERE collection_id = $1 ORDER BY received_at`,
+        [req.params.id],
+      ).catch(() => ({ rows: [] })),
+      query(
+        `SELECT wd.id, wd.event_type, wd.payload, wd.delivery_status, wd.http_status,
+                wd.response_body, wd.created_at, wd.delivered_at, wd.retry_count, we.url
+           FROM webhook_deliveries wd
+           JOIN webhook_endpoints we ON we.id = wd.endpoint_id
+          WHERE wd.payload->>'collection_id' = $1
+          ORDER BY wd.created_at`,
+        [req.params.id],
+      ).catch(() => ({ rows: [] })),
+    ]);
+    res.json(success({ events, webhookEvents, webhookDeliveries }, { request_id: req.ogunContext.requestId }));
   } catch (err) {
     next(err);
   }
@@ -911,12 +944,15 @@ router.get('/admin/settlements', async (req, res, next) => {
     const offset = (page - 1) * limit;
     const [{ rows: items }, { rows: totals }] = await Promise.all([
       query(
-        `SELECT id, merchant_id, sub_merchant_id, period_start, period_end,
-                gross_amount, fee_amount, settlement_fee, refund_adjustment_amount,
-                other_adjustment_amount, net_amount, transaction_count,
-                status, payout_id, report_url, destination_summary, created_at, updated_at
-           FROM settlements ${whereSql}
-          ORDER BY created_at DESC
+        `SELECT s.id, s.merchant_id, s.sub_merchant_id, s.period_start, s.period_end,
+                s.gross_amount, s.fee_amount, s.settlement_fee, s.refund_adjustment_amount,
+                s.other_adjustment_amount, s.net_amount, s.transaction_count,
+                s.status, s.payout_id, s.report_url, s.destination_summary, s.created_at, s.updated_at,
+                sm.name AS sub_merchant_name
+           FROM settlements s
+           LEFT JOIN sub_merchants sm ON sm.id = s.sub_merchant_id
+           ${whereSql ? whereSql.replace(/\b(merchant_id|sub_merchant_id|status)\b/g, 's.$1') : ''}
+          ORDER BY s.created_at DESC
           LIMIT $${i++} OFFSET $${i++}`,
         [...vals, limit, offset],
       ),
