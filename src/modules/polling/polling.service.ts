@@ -144,6 +144,7 @@ async function processJob(job: PollingJobRow, now: Date): Promise<void> {
         source: 'poller',
         normalizedStatus: 'succeeded',
         providerReference: result.provider_reference,
+        providerMessage: result.error_message ?? undefined,
       });
       await stopPollingJob(job.reference_type, job.reference_id, 'succeeded');
       return;
@@ -157,6 +158,7 @@ async function processJob(job: PollingJobRow, now: Date): Promise<void> {
         normalizedStatus: 'failed',
         providerReference: result.provider_reference,
         failureReason: reason,
+        providerMessage: result.error_message ?? undefined,
       });
       await stopPollingJob(job.reference_type, job.reference_id, 'failed');
       return;

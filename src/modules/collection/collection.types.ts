@@ -77,6 +77,10 @@ export type CollectionRow = {
   provider: string;
   merchant_reference: string | null;
   provider_reference: string | null;
+  provider_call_state: string | null;
+  provider_message: string | null;
+  next_action: string | null;
+  failure_reason: string | null;
   internal_status: CollectionInternalStatusValue;
   business_status: CollectionBusinessStatusValue;
   status_reason: string | null;

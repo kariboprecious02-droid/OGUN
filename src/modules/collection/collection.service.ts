@@ -275,6 +275,9 @@ async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResul
       provider_reference: result.provider_reference,
       provider_submission_at: submissionAt,
       status_reason: result.error_code ?? null,
+      provider_call_state: result.normalized_status === 'failed' ? 'failed' : 'completed',
+      provider_message: result.error_message ?? null,
+      next_action: result.next_action ?? null,
     });
 
     await insertCollectionAudit(client, {
@@ -376,6 +379,7 @@ export async function resolveCollection(
     normalizedStatus: 'succeeded' | 'failed';
     providerReference?: string;
     failureReason?: string;
+    providerMessage?: string;
     payloadHash?: string;
   },
 ): Promise<CollectionRow> {
@@ -408,6 +412,8 @@ export async function resolveCollection(
       final_resolved_at: resolvedAt,
       polling_stopped_at: resolvedAt,
       polling_stop_reason: input.normalizedStatus,
+      provider_call_state: input.normalizedStatus === 'succeeded' ? 'completed' : 'failed',
+      provider_message: input.providerMessage ?? null,
     };
     if (input.providerReference) patch.provider_reference = input.providerReference;
     if (input.source === 'webhook') {

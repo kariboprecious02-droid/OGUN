@@ -31,7 +31,7 @@ export default async function MerchantSettlementsTab({
     (acc, s) => acc + Number(s.net_amount ?? 0),
     0,
   );
-  const settledCount = result.items.filter((s) => s.status === 'settled').length;
+  const settledCount = result.items.filter((s) => s.status === 'paid' || s.status === 'settled').length;
 
   const eligibleItems = collections.items.filter((c) => c.settlement_eligible);
   const pendingSettlementCents = eligibleItems

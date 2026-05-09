@@ -151,7 +151,7 @@ export function rollupSettlements(items: SettlementSummary[]): SettlementsRollup
     acc.gross_cents += gross;
     acc.net_cents += net;
     acc.settlement_fee_cents += settlementFee;
-    if (s.status === 'settled') acc.settled_count += 1;
+    if (s.status === 'paid' || s.status === 'settled') acc.settled_count += 1;
     if (s.status === 'scheduled') acc.scheduled_count += 1;
     const m = acc.per_merchant.get(s.merchant_id) ?? {
       gross_cents: 0,

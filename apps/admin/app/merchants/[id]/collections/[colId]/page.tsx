@@ -229,8 +229,13 @@ export default async function CollectionDetailPage({
             <Kv k="Wallet credited at" v={c.wallet_credited_at ? formatIsoDate(c.wallet_credited_at) : null} />
             <Kv k="Settlement eligible" v={c.settlement_eligible ? 'yes' : 'no'} />
             <Kv k="Settlement batch" v={c.settlement_batch_id} mono />
-            <Kv k="Refund status" v={c.refund_status} />
-            <Kv k="Refunded amount" v={c.refunded_amount != null ? `KES ${centsToKes(c.refunded_amount).toLocaleString()}` : null} />
+            <Kv k="Refund status" v={c.refund_status === 'none' ? null : c.refund_status} />
+            {c.refund_status !== 'none' && c.refund_status != null && (
+              <>
+                <Kv k="Refunded amount" v={c.refunded_amount != null && c.refunded_amount > 0 ? `KES ${centsToKes(c.refunded_amount).toLocaleString()}` : '—'} />
+                <Kv k="Refund reference" v={c.refund_reference} mono />
+              </>
+            )}
           </dl>
         </section>
 

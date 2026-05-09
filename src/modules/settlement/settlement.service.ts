@@ -100,19 +100,27 @@ export async function createSettlement(input: {
   );
   const refundAdjustments = refundRows.reduce((sum, r) => sum + Number(r.refunded_amount ?? 0), 0);
 
-  const net = gross - fees - settlementFee - refundAdjustments;
+  const rawNet = gross - fees - settlementFee - refundAdjustments;
+  const roundingSubsidy = rawNet > 0 ? (100 - (rawNet % 100)) % 100 : 0;
+  const net = rawNet + roundingSubsidy;
 
   const id = newId('settlement');
   const periodEnd = new Date();
   const periodStart = new Date(periodEnd.getTime() - 7 * 24 * 3600 * 1000);
+
+  if (roundingSubsidy > 0) {
+    logger.info({ settlement_id: id, rawNet, net, roundingSubsidy },
+      'settlement net rounded UP to whole KES');
+  }
 
   await withTransaction(async (client) => {
     await client.query(
       `INSERT INTO settlements
          (id, merchant_id, sub_merchant_id, period_start, period_end,
           gross_amount, fee_amount, settlement_fee, refund_adjustment_amount,
-          other_adjustment_amount, net_amount, transaction_count, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11,'created')`,
+          other_adjustment_amount, net_amount, transaction_count, status,
+          settlement_rounding_subsidy)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11,'created',$12)`,
       [
         id,
         input.merchantId,
@@ -125,6 +133,7 @@ export async function createSettlement(input: {
         refundAdjustments,
         net,
         eligible.length,
+        roundingSubsidy,
       ],
     );
 

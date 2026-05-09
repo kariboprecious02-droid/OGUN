@@ -108,6 +108,10 @@ export async function updateCollectionStatus(
     business_status?: CollectionBusinessStatusValue;
     status_reason?: string | null;
     provider_reference?: string | null;
+    provider_call_state?: string | null;
+    provider_message?: string | null;
+    next_action?: string | null;
+    failure_reason?: string | null;
     provider_submission_at?: Date | null;
     final_resolved_at?: Date | null;
     webhook_received_at?: Date | null;

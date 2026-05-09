@@ -17,6 +17,8 @@ import {
 import { findPayoutByProviderRef, resolvePayout } from '@/modules/payout/payout.service';
 import { sha256Hex } from '@/infra/crypto';
 import { recordCollectionEvent } from '@/modules/observability/collectionEvents';
+import { query } from '@/infra/db/pool';
+import { newId } from '@/infra/ids';
 
 const router = Router();
 
@@ -73,12 +75,20 @@ router.post('/webhooks/paystack', raw({ type: 'application/json' }), async (req,
 
     if (event.startsWith('charge.')) {
       const connector = getCollectionConnector('paystack');
-      if (!connector.validateWebhookSignature(payload, req.headers as Record<string, string>)) {
+      const sigValid = connector.validateWebhookSignature(payload, req.headers as Record<string, string>);
+      if (!sigValid) {
         return res.status(401).send('invalid signature');
       }
       const parsed = connector.parseWebhook(payload, req.headers as Record<string, string>);
       const collection = await findCollectionByProviderRef(parsed.provider_reference);
       if (!collection) return res.status(200).send('ok');
+
+      query(
+        `INSERT INTO paystack_webhook_events
+           (id, collection_id, event_type, raw_payload, signature_valid, http_status_returned, received_at)
+         VALUES ($1,$2,$3,$4,$5,200,now())`,
+        [newId('event'), collection.id, event, JSON.stringify(body), sigValid],
+      ).catch((err) => logger.error({ err }, 'failed to persist paystack webhook event'));
 
       recordCollectionEvent({
         collection_id: collection.id,
@@ -99,6 +109,9 @@ router.post('/webhooks/paystack', raw({ type: 'application/json' }), async (req,
           normalizedStatus: parsed.normalized_status,
           providerReference: parsed.provider_reference,
           failureReason: parsed.failure_reason,
+          providerMessage: (body as Record<string, unknown>).data
+            ? ((body as Record<string, unknown>).data as Record<string, unknown>).gateway_response as string | undefined
+            : undefined,
           payloadHash: sha256Hex(payload),
         });
       }
