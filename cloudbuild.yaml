@@ -51,6 +51,11 @@ steps:
     args: ['push', 'gcr.io/$PROJECT_ID/ogun-admin:latest']
 
   # ---------- Deploy both to staging ----------
+  # NOTE: --traffic=LATEST=100 is NOT a valid gcloud run deploy flag (a73cb62
+  # introduced it and broke every deploy since). The supported pattern is:
+  #   1. deploy the new revision (default routes 100% to it on auto-traffic services)
+  #   2. explicitly call `update-traffic --to-latest` as belt-and-suspenders for
+  #      services that may have ended up in manual-traffic mode.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'deploy-api-staging'
     entrypoint: 'gcloud'
@@ -61,7 +66,19 @@ steps:
       - '--image=gcr.io/$PROJECT_ID/ogun-api:$COMMIT_SHA'
       - '--region=us-central1'
       - '--platform=managed'
-      - '--traffic=LATEST=100'
+      - '--quiet'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'flip-traffic-api-staging'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'services'
+      - 'update-traffic'
+      - 'ogun-api-staging'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--to-latest'
       - '--quiet'
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -75,7 +92,19 @@ steps:
       - '--region=us-central1'
       - '--platform=managed'
       - '--update-env-vars=OGUN_API_BASE_URL=https://ogun-api-staging-552820821813.us-central1.run.app/v1'
-      - '--traffic=LATEST=100'
+      - '--quiet'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'flip-traffic-admin-staging'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'services'
+      - 'update-traffic'
+      - 'ogun-admin-staging'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--to-latest'
       - '--quiet'
 
 images:
