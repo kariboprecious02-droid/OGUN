@@ -89,6 +89,10 @@ export async function panelSaveMerchantSettingsAction(formData: FormData): Promi
     enabled_payout_methods: enabled_payout_methods.length > 0 ? enabled_payout_methods : [],
     settlement_frequency: settlementFreq as SettingsBody['settlement_frequency'],
     webhook_url: webhookUrl,
+    settlement_bank_name: String(formData.get('settlement_bank_name') ?? '').trim() || null,
+    settlement_account_number: String(formData.get('settlement_account_number') ?? '').trim() || null,
+    settlement_branch_code: String(formData.get('settlement_branch_code') ?? '').trim() || null,
+    settlement_account_holder: String(formData.get('settlement_account_holder') ?? '').trim() || null,
   };
 
   try {

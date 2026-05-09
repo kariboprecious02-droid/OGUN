@@ -14,6 +14,10 @@ export type MerchantSettingsRow = {
   enabled_payout_methods: string[];
   settlement_frequency: string;
   webhook_url: string | null;
+  settlement_bank_name: string | null;
+  settlement_account_number: string | null;
+  settlement_branch_code: string | null;
+  settlement_account_holder: string | null;
   updated_at: Date;
 };
 
@@ -37,6 +41,10 @@ export async function resolveEffectiveSettings(
   settlement_frequency: string;
   webhook_url: string | null;
   notification_emails: string[];
+  settlement_bank_name: string | null;
+  settlement_account_number: string | null;
+  settlement_branch_code: string | null;
+  settlement_account_holder: string | null;
   source: 'merchant' | 'sub_merchant';
 }> {
   const { rows: subRows } = subMerchantId
@@ -58,6 +66,10 @@ export async function resolveEffectiveSettings(
     settlement_frequency: row.settlement_frequency ?? 'weekly',
     webhook_url: row.webhook_url ?? null,
     notification_emails: row.notification_emails ?? [],
+    settlement_bank_name: row.settlement_bank_name ?? null,
+    settlement_account_number: row.settlement_account_number ?? null,
+    settlement_branch_code: row.settlement_branch_code ?? null,
+    settlement_account_holder: row.settlement_account_holder ?? null,
     source,
   });
 
@@ -81,6 +93,10 @@ export async function resolveEffectiveSettings(
     settlement_frequency: 'weekly',
     webhook_url: null,
     notification_emails: [],
+    settlement_bank_name: null,
+    settlement_account_number: null,
+    settlement_branch_code: null,
+    settlement_account_holder: null,
     source: 'merchant',
   };
 }
@@ -99,6 +115,10 @@ export async function upsertSettings(input: {
   enabled_payout_methods?: string[];
   settlement_frequency?: string;
   webhook_url?: string | null;
+  settlement_bank_name?: string | null;
+  settlement_account_number?: string | null;
+  settlement_branch_code?: string | null;
+  settlement_account_holder?: string | null;
 }): Promise<void> {
   const conflictClause =
     input.sub_merchant_id === null
@@ -110,7 +130,8 @@ export async function upsertSettings(input: {
        (id, merchant_id, sub_merchant_id, collection_fee_pct, collection_fee_model,
         payout_fee_pct, payout_fee_model, settlement_fee_pct,
         notification_emails, enabled_methods,
-        enabled_payout_methods, settlement_frequency, webhook_url)
+        enabled_payout_methods, settlement_frequency, webhook_url,
+        settlement_bank_name, settlement_account_number, settlement_branch_code, settlement_account_holder)
      VALUES ($1,$2,$3,
              COALESCE($4, 1.5),
              COALESCE($5, 'merchant_covers'),
@@ -121,7 +142,7 @@ export async function upsertSettings(input: {
              COALESCE($10, ARRAY['mpesa','airtel']::text[]),
              COALESCE($11, ARRAY[]::text[]),
              COALESCE($12, 'weekly'),
-             $13)
+             $13, $14, $15, $16, $17)
      ${conflictClause} DO UPDATE SET
        collection_fee_pct = COALESCE(EXCLUDED.collection_fee_pct, merchant_settings.collection_fee_pct),
        collection_fee_model = COALESCE(EXCLUDED.collection_fee_model, merchant_settings.collection_fee_model),
@@ -133,6 +154,10 @@ export async function upsertSettings(input: {
        enabled_payout_methods = COALESCE(EXCLUDED.enabled_payout_methods, merchant_settings.enabled_payout_methods),
        settlement_frequency = COALESCE(EXCLUDED.settlement_frequency, merchant_settings.settlement_frequency),
        webhook_url = COALESCE(EXCLUDED.webhook_url, merchant_settings.webhook_url),
+       settlement_bank_name = COALESCE(EXCLUDED.settlement_bank_name, merchant_settings.settlement_bank_name),
+       settlement_account_number = COALESCE(EXCLUDED.settlement_account_number, merchant_settings.settlement_account_number),
+       settlement_branch_code = COALESCE(EXCLUDED.settlement_branch_code, merchant_settings.settlement_branch_code),
+       settlement_account_holder = COALESCE(EXCLUDED.settlement_account_holder, merchant_settings.settlement_account_holder),
        updated_at = now()`,
     [
       input.id,
@@ -148,6 +173,10 @@ export async function upsertSettings(input: {
       input.enabled_payout_methods ?? null,
       input.settlement_frequency ?? null,
       input.webhook_url,
+      input.settlement_bank_name ?? null,
+      input.settlement_account_number ?? null,
+      input.settlement_branch_code ?? null,
+      input.settlement_account_holder ?? null,
     ],
   );
 }

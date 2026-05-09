@@ -496,6 +496,10 @@ export type SettingsBody = {
   enabled_payout_methods?: string[];
   settlement_frequency?: 'daily' | 'weekly' | 'bi-weekly' | 'monthly';
   webhook_url?: string | null;
+  settlement_bank_name?: string | null;
+  settlement_account_number?: string | null;
+  settlement_branch_code?: string | null;
+  settlement_account_holder?: string | null;
 };
 
 export type EffectiveSettings = SettingsBody & {

@@ -811,6 +811,10 @@ const adminSettingsBody = z
     enabled_payout_methods: z.array(z.enum(VALID_PAYOUT_METHODS)).optional(),
     settlement_frequency: z.enum(['daily', 'weekly', 'bi-weekly', 'monthly']).optional(),
     webhook_url: z.string().url().startsWith('https://').max(2048).optional().nullable(),
+    settlement_bank_name: z.string().max(200).optional().nullable(),
+    settlement_account_number: z.string().max(50).optional().nullable(),
+    settlement_branch_code: z.string().max(50).optional().nullable(),
+    settlement_account_holder: z.string().max(200).optional().nullable(),
   })
   .strict();
 

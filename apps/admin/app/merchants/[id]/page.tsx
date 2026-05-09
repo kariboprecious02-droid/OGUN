@@ -339,6 +339,37 @@ function AccountsTab({
 
       <section className="panel-padded">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+          Settlement account
+        </h2>
+        <p className="text-xs text-ogun-muted mb-4">
+          Bank or mobile money account where settlement payouts are sent.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <TextField
+            label="Account holder name"
+            name="settlement_account_holder"
+            defaultValue={s.settlement_account_holder ?? ''}
+          />
+          <TextField
+            label="Bank name"
+            name="settlement_bank_name"
+            defaultValue={s.settlement_bank_name ?? ''}
+          />
+          <TextField
+            label="Account number"
+            name="settlement_account_number"
+            defaultValue={s.settlement_account_number ?? ''}
+          />
+          <TextField
+            label="Branch / SWIFT code"
+            name="settlement_branch_code"
+            defaultValue={s.settlement_branch_code ?? ''}
+          />
+        </div>
+      </section>
+
+      <section className="panel-padded">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
           Enabled collection methods
         </h2>
         <div className="flex flex-wrap gap-3">
