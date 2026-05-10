@@ -46,7 +46,7 @@ export function recordCollectionEvent(input: RecordCollectionEventInput): void {
     `INSERT INTO collection_events
        (id, collection_id, event_type, source, occurred_at, request_id,
         http_status, latency_ms, payload, message)
-     VALUES ($1,$2,$3,$4,now(),$5,$6,$7,$8,$9)`,
+     VALUES ($1,$2,$3,$4,clock_timestamp(),$5,$6,$7,$8,$9)`,
     [
       id,
       input.collection_id,

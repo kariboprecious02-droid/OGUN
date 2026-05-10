@@ -62,6 +62,7 @@ export default async function MerchantCollectionsTab({
           <thead>
             <tr>
               <th>Collection ID</th>
+              <th>Sub-merchant</th>
               <th>Method</th>
               <th>Amount</th>
               <th>Fee</th>
@@ -72,7 +73,7 @@ export default async function MerchantCollectionsTab({
           <tbody>
             {result.items.length === 0 && (
               <tr>
-                <td colSpan={6} className="text-center text-ogun-muted py-8">
+                <td colSpan={7} className="text-center text-ogun-muted py-8">
                   No collections yet — once the merchant starts processing,
                   transactions appear here within ~30 seconds.
                 </td>
@@ -84,15 +85,16 @@ export default async function MerchantCollectionsTab({
                 className="border-t border-ogun-border hover:bg-ogun-bg/50 cursor-pointer"
                 onClick={undefined}
               >
-                <td colSpan={6} className="p-0">
+                <td colSpan={7} className="p-0">
                   <Link
                     href={`/merchants/${id}/collections/${c.id}`}
                     className="no-underline text-ogun-text flex"
                   >
-                    <span className="mono text-xs px-3 py-2 flex-shrink-0 w-[280px]">{c.id}</span>
-                    <span className="px-3 py-2 flex-shrink-0 w-[80px]">{c.method}</span>
-                    <span className="px-3 py-2 flex-shrink-0 w-[100px]">KES {(Number(c.amount) / 100).toLocaleString()}</span>
-                    <span className="px-3 py-2 flex-shrink-0 w-[100px] text-ogun-muted">KES {(Number(c.fee_amount) / 100).toLocaleString()}</span>
+                    <span className="mono text-xs px-3 py-2 flex-shrink-0 w-[240px]">{c.id}</span>
+                    <span className="px-3 py-2 flex-shrink-0 w-[120px] text-xs">{(c as Record<string, unknown>).sub_merchant_name as string ?? c.sub_merchant_id}</span>
+                    <span className="px-3 py-2 flex-shrink-0 w-[70px]">{c.method}</span>
+                    <span className="px-3 py-2 flex-shrink-0 w-[90px] text-right">KES {(Number(c.amount) / 100).toLocaleString()}</span>
+                    <span className="px-3 py-2 flex-shrink-0 w-[90px] text-right text-ogun-muted">KES {(Number(c.fee_amount) / 100).toLocaleString()}</span>
                     <span className="px-3 py-2 flex-shrink-0 w-[100px]"><Badge status={c.business_status} /></span>
                     <span className="px-3 py-2 flex-1 text-xs text-ogun-muted">{formatIsoDate(c.created_at)}</span>
                   </Link>

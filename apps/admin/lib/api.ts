@@ -422,6 +422,27 @@ export type CollectionLogs = {
   }>;
 };
 
+export type SettlementDetail = SettlementSummary & {
+  sub_merchant_name: string | null;
+  settlement_rounding_subsidy: number;
+  line_items: Array<{
+    id: string;
+    settlement_id: string;
+    reference_type: string;
+    reference_id: string;
+    amount: number;
+    direction: string;
+    method: string | null;
+    customer_phone: string | null;
+    business_status: string | null;
+    merchant_reference: string | null;
+  }>;
+};
+
+export async function getSettlementDetail(id: string): Promise<SettlementDetail> {
+  return request<SettlementDetail>(`/admin/settlements/${id}`);
+}
+
 export async function getCollectionLogs(id: string): Promise<CollectionLogs> {
   return request<CollectionLogs>(`/admin/collections/${id}/logs`);
 }

@@ -491,12 +491,15 @@ router.get('/admin/collections', async (req, res, next) => {
     const offset = (page - 1) * limit;
     const [{ rows: items }, { rows: totals }] = await Promise.all([
       query(
-        `SELECT id, merchant_id, sub_merchant_id, amount, fee_amount, currency,
-                method, provider, business_status, internal_status, status_reason,
-                customer_phone, merchant_reference, settlement_eligible,
-                wallet_credited, refund_status, created_at, final_resolved_at
-           FROM collections ${whereSql}
-          ORDER BY created_at DESC
+        `SELECT c.id, c.merchant_id, c.sub_merchant_id, c.amount, c.fee_amount, c.currency,
+                c.method, c.provider, c.business_status, c.internal_status, c.status_reason,
+                c.customer_phone, c.merchant_reference, c.settlement_eligible,
+                c.wallet_credited, c.refund_status, c.created_at, c.final_resolved_at,
+                sm.name AS sub_merchant_name
+           FROM collections c
+           LEFT JOIN sub_merchants sm ON sm.id = c.sub_merchant_id
+           ${whereSql ? whereSql.replace(/\b(merchant_id|sub_merchant_id|business_status)\b/g, 'c.$1') : ''}
+          ORDER BY c.created_at DESC
           LIMIT $${i++} OFFSET $${i++}`,
         [...vals, limit, offset],
       ),
@@ -979,6 +982,46 @@ router.get('/admin/settlements', async (req, res, next) => {
     res.json(
       paginated(normalized, page, limit, Number(totals[0]?.count ?? 0), req.ogunContext.requestId),
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/admin/settlements/:id', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const { rows: settlements } = await query(
+      `SELECT s.*, sm.name AS sub_merchant_name
+         FROM settlements s
+         LEFT JOIN sub_merchants sm ON sm.id = s.sub_merchant_id
+        WHERE s.id = $1`,
+      [req.params.id],
+    );
+    if (settlements.length === 0) {
+      throw OgunError.notFound('Settlement', req.params.id);
+    }
+    const s = settlements[0] as Record<string, unknown>;
+    const { rows: lineItems } = await query(
+      `SELECT sli.*, c.method, c.customer_phone, c.business_status, c.merchant_reference
+         FROM settlement_line_items sli
+         LEFT JOIN collections c ON c.id = sli.reference_id
+        WHERE sli.settlement_id = $1
+        ORDER BY sli.id`,
+      [req.params.id],
+    );
+    res.json(success({
+      ...s,
+      gross_amount: Number(s.gross_amount),
+      fee_amount: Number(s.fee_amount),
+      settlement_fee: Number(s.settlement_fee),
+      refund_adjustment_amount: Number(s.refund_adjustment_amount),
+      other_adjustment_amount: Number(s.other_adjustment_amount),
+      net_amount: Number(s.net_amount),
+      line_items: lineItems.map((li: Record<string, unknown>) => ({
+        ...li,
+        amount: Number(li.amount),
+      })),
+    }, { request_id: req.ogunContext.requestId }));
   } catch (err) {
     next(err);
   }

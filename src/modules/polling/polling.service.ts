@@ -164,11 +164,17 @@ async function processJob(job: PollingJobRow, now: Date): Promise<void> {
       return;
     }
 
+    const freshRow = await findCollection(job.reference_id);
+    if (freshRow && (isTerminal(freshRow.internal_status) || freshRow.webhook_received_at)) {
+      await stopPollingJob(job.reference_type, job.reference_id, 'terminal_post_check');
+      return;
+    }
+
     const next = new Date(now.getTime() + config.polling.intervalSeconds * 1000);
     await query(
       `UPDATE polling_jobs
          SET poll_count = poll_count + 1, next_poll_at = $2
-       WHERE id = $1`,
+       WHERE id = $1 AND status = 'active'`,
       [job.id, next],
     );
     await query(

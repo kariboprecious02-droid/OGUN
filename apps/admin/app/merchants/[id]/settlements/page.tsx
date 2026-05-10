@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
 import { getMerchantDetail, listSettlements, listCollections, OgunApiError } from '@/lib/api';
@@ -85,8 +86,15 @@ export default async function MerchantSettlementsTab({
               </tr>
             )}
             {result.items.map((s) => (
-              <tr key={s.id} className="border-t border-ogun-border">
-                <td className="mono text-xs">{s.id}</td>
+              <tr key={s.id} className="border-t border-ogun-border hover:bg-ogun-bg/50 cursor-pointer">
+                <td>
+                  <Link
+                    href={`/merchants/${id}/settlements/${s.id}`}
+                    className="mono text-xs no-underline text-ogun-accent-on-dark"
+                  >
+                    {s.id}
+                  </Link>
+                </td>
                 <td>
                   <div className="text-sm">{(s as Record<string, unknown>).sub_merchant_name as string ?? s.sub_merchant_id}</div>
                   <div className="mono text-xs text-ogun-muted">{s.sub_merchant_id}</div>

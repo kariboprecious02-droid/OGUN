@@ -242,6 +242,51 @@ export default async function CollectionDetailPage({
           </dl>
         </section>
 
+        {/* Refunds */}
+        <section className="panel-padded mb-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+            Refunds
+          </h2>
+          {c.refund_status === 'none' || c.refund_status == null ? (
+            <p className="text-sm text-ogun-muted">No refunds on this transaction.</p>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <div className="text-xs text-ogun-muted">Type</div>
+                  <div className="font-semibold">
+                    {c.refund_status === 'refunded' ? 'Full refund' : 'Partial refund'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-ogun-muted">Amount refunded</div>
+                  <div className="font-semibold">
+                    {c.refunded_amount != null && c.refunded_amount > 0
+                      ? `KES ${centsToKes(c.refunded_amount).toLocaleString()}`
+                      : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-ogun-muted">Timestamp</div>
+                  <div className="text-sm">
+                    {c.refund_timestamp ? formatIsoDate(c.refund_timestamp) : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-ogun-muted">Reference</div>
+                  <div className="mono text-xs">{c.refund_reference ?? '—'}</div>
+                </div>
+              </div>
+              {c.refund_status === 'partial_refund' && c.refunded_amount != null && (
+                <div className="text-xs text-ogun-muted p-2 bg-ogun-bg rounded-md border border-ogun-border">
+                  Net after partial refund: KES {centsToKes(c.amount - c.refunded_amount).toLocaleString()}
+                  {' '}(original KES {centsToKes(c.amount).toLocaleString()} − refund KES {centsToKes(c.refunded_amount).toLocaleString()})
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
         {/* Integration Logs */}
         <section className="panel-padded mb-6">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
