@@ -125,15 +125,35 @@ export async function createCollection(
     collection_id: row.id,
     event_type: 'api.received',
     source: 'api',
-    payload: { amount: input.amount, method: input.method, currency: input.currency },
-    message: `POST /v1/collections received for ${input.method}`,
+    payload: {
+      direction: 'Merchant → Ogun',
+      method: 'POST',
+      url: '/v1/collections',
+      request_body: {
+        amount: input.amount,
+        currency: input.currency,
+        method: input.method,
+        merchant_id: input.merchant_id,
+        sub_merchant_id: input.sub_merchant_id,
+        customer: { phone: input.customer.phone.slice(0, 4) + '***' + input.customer.phone.slice(-2) },
+        reference: input.reference,
+      },
+    },
+    message: `Merchant → Ogun: POST /v1/collections (${input.method}, KES ${(input.amount / 100).toFixed(2)})`,
   });
 
   await recordCollectionEventSync({
     collection_id: row.id,
     event_type: 'api.validated',
     source: 'api',
-    payload: { merchant_id: merchant.id, sub_merchant_id: sub.id, fee_model: feeSnapshot.model },
+    payload: {
+      direction: 'Ogun (internal)',
+      merchant_id: merchant.id,
+      sub_merchant_id: sub.id,
+      fee_model: feeSnapshot.model,
+      fee_amount: feeSnapshot.fee_amount,
+      customer_amount: feeSnapshot.customer_amount,
+    },
     message: 'request validated, fees computed',
   });
 

@@ -306,16 +306,20 @@ export default async function CollectionDetailPage({
                 {logs.events.map((e) => (
                   <details key={e.id} className="border-t border-ogun-border group">
                     <summary className="flex items-center gap-3 px-3 py-2 text-xs cursor-pointer hover:bg-ogun-bg/50 list-none">
-                      <span className="whitespace-nowrap text-ogun-muted w-[160px]">{formatIsoDate(e.occurred_at)}</span>
-                      <span className="mono font-medium w-[140px]">{e.event_type}</span>
-                      <span className="w-[80px] text-ogun-muted">{e.source}</span>
+                      <span className="whitespace-nowrap text-ogun-muted w-[140px]">{formatIsoDate(e.occurred_at)}</span>
+                      {e.payload?.direction ? (
+                        <span className="w-[120px] font-medium text-ogun-accent-on-dark text-[10px]">{String(e.payload.direction)}</span>
+                      ) : null}
+                      <span className="mono font-medium w-[130px]">{e.event_type}</span>
                       <span className="w-[50px]">{e.http_status ?? '—'}</span>
-                      <span className="w-[60px]">{e.latency_ms != null ? `${e.latency_ms}ms` : '—'}</span>
+                      <span className="w-[50px]">{e.latency_ms != null ? `${e.latency_ms}ms` : '—'}</span>
                       <span className="flex-1 text-ogun-muted truncate">{e.message ?? '—'}</span>
                       <span className="text-ogun-accent-on-dark text-[10px]">▶</span>
                     </summary>
                     <div className="px-3 py-2 bg-ogun-bg border-l-2 border-ogun-accent-on-dark ml-3">
-                      <div className="text-[10px] text-ogun-muted uppercase mb-1">Payload</div>
+                      <div className="text-[10px] text-ogun-muted uppercase mb-1">
+                        {e.payload?.direction ? String(e.payload.direction) : 'Payload'}
+                      </div>
                       <pre className="text-xs mono overflow-x-auto whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto">
                         {JSON.stringify(e.payload, null, 2)}
                       </pre>
