@@ -40,9 +40,20 @@ export type RecordCollectionEventInput = {
 };
 
 export function recordCollectionEvent(input: RecordCollectionEventInput): void {
+  doRecordEvent(input).catch((err) => {
+    logger.error({ err, event_type: input.event_type, collection_id: input.collection_id },
+      'failed to record collection event');
+  });
+}
+
+export async function recordCollectionEventSync(input: RecordCollectionEventInput): Promise<void> {
+  await doRecordEvent(input);
+}
+
+async function doRecordEvent(input: RecordCollectionEventInput): Promise<void> {
   const id = newId('event');
   const requestId = input.request_id ?? getRequestId() ?? null;
-  query(
+  await query(
     `INSERT INTO collection_events
        (id, collection_id, event_type, source, occurred_at, request_id,
         http_status, latency_ms, payload, message)
@@ -58,8 +69,5 @@ export function recordCollectionEvent(input: RecordCollectionEventInput): void {
       JSON.stringify(input.payload ?? {}),
       input.message ?? null,
     ],
-  ).catch((err) => {
-    logger.error({ err, event_type: input.event_type, collection_id: input.collection_id },
-      'failed to record collection event');
-  });
+  );
 }

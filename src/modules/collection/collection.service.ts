@@ -41,7 +41,7 @@ import {
   isTerminal,
 } from './collection.types';
 import { pickCollectionProvider, getCollectionConnector } from '@/modules/connectors/registry';
-import { recordCollectionEvent } from '@/modules/observability/collectionEvents';
+import { recordCollectionEvent, recordCollectionEventSync } from '@/modules/observability/collectionEvents';
 import { setContextField } from '@/infra/requestContext';
 import { findWalletBySub, lockWalletForUpdate } from '@/modules/wallet/wallet.repository';
 import { postLedgerEntry } from '@/modules/wallet/ledger';
@@ -121,7 +121,7 @@ export async function createCollection(
 
   setContextField('collection_id', row.id);
 
-  recordCollectionEvent({
+  await recordCollectionEventSync({
     collection_id: row.id,
     event_type: 'api.received',
     source: 'api',
@@ -129,7 +129,7 @@ export async function createCollection(
     message: `POST /v1/collections received for ${input.method}`,
   });
 
-  recordCollectionEvent({
+  await recordCollectionEventSync({
     collection_id: row.id,
     event_type: 'api.validated',
     source: 'api',
@@ -137,7 +137,7 @@ export async function createCollection(
     message: 'request validated, fees computed',
   });
 
-  recordCollectionEvent({
+  await recordCollectionEventSync({
     collection_id: row.id,
     event_type: 'db.created',
     source: 'orchestrator',
