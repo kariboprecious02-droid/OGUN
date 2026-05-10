@@ -69,9 +69,9 @@ export default async function MerchantSettlementsTab({
               <th>Settlement ID</th>
               <th>Sub-merchant</th>
               <th>Period</th>
-              <th>Gross</th>
-              <th>Fees</th>
-              <th>Net</th>
+              <th className="text-right">Gross</th>
+              <th className="text-right">Fees</th>
+              <th className="text-right">Net</th>
               <th>Status</th>
               <th>Updated</th>
             </tr>
@@ -103,15 +103,15 @@ export default async function MerchantSettlementsTab({
                   {formatIsoDate(s.period_start)} →{' '}
                   {formatIsoDate(s.period_end)}
                 </td>
-                <td>KES {(Number(s.gross_amount) / 100).toLocaleString()}</td>
-                <td className="text-ogun-muted">
+                <td className="text-right">KES {(Number(s.gross_amount) / 100).toLocaleString()}</td>
+                <td className="text-right text-ogun-muted">
                   KES{' '}
                   {(
                     (Number(s.fee_amount) + Number(s.settlement_fee)) /
                     100
                   ).toLocaleString()}
                 </td>
-                <td>KES {(Number(s.net_amount) / 100).toLocaleString()}</td>
+                <td className="text-right">KES {(Number(s.net_amount) / 100).toLocaleString()}</td>
                 <td>
                   <Badge status={s.status} />
                 </td>
@@ -123,6 +123,50 @@ export default async function MerchantSettlementsTab({
           </tbody>
         </table>
       </div>
+
+      {pendingCount > 0 && (
+        <section className="panel-padded mt-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-2">
+            Next settlement (pending)
+          </h2>
+          <p className="text-xs text-ogun-muted mb-3">
+            {pendingCount} collection{pendingCount === 1 ? '' : 's'} eligible for the next settlement
+            batch. Net amount: KES {(pendingSettlementCents / 100).toLocaleString()}.
+            Settlement runs on the configured cadence.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="table-default w-full text-xs">
+              <thead>
+                <tr>
+                  <th className="text-left">Collection ID</th>
+                  <th className="text-right">Amount</th>
+                  <th className="text-right">Fee</th>
+                  <th className="text-right">Net</th>
+                  <th className="text-left">Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {eligibleItems.map((c) => (
+                  <tr key={c.id} className="border-t border-ogun-border">
+                    <td>
+                      <Link
+                        href={`/merchants/${id}/collections/${c.id}`}
+                        className="mono text-xs no-underline text-ogun-accent-on-dark"
+                      >
+                        {c.id}
+                      </Link>
+                    </td>
+                    <td className="text-right">KES {(Number(c.amount) / 100).toLocaleString()}</td>
+                    <td className="text-right text-ogun-muted">KES {(Number(c.fee_amount) / 100).toLocaleString()}</td>
+                    <td className="text-right">KES {((Number(c.amount) - Number(c.fee_amount)) / 100).toLocaleString()}</td>
+                    <td className="text-ogun-muted">{formatIsoDate(c.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </PanelChrome>
   );
 }

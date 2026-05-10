@@ -61,13 +61,13 @@ export default async function MerchantCollectionsTab({
         <table className="table-default w-full text-sm">
           <thead>
             <tr>
-              <th>Collection ID</th>
-              <th>Sub-merchant</th>
-              <th>Method</th>
-              <th>Amount</th>
-              <th>Fee</th>
-              <th>Status</th>
-              <th>Created</th>
+              <th className="text-left">Collection ID</th>
+              <th className="text-left">Sub-merchant</th>
+              <th className="text-left">Method</th>
+              <th className="text-right">Amount</th>
+              <th className="text-right">Fee</th>
+              <th className="text-left">Status</th>
+              <th className="text-left">Created</th>
             </tr>
           </thead>
           <tbody>
@@ -80,25 +80,18 @@ export default async function MerchantCollectionsTab({
               </tr>
             )}
             {result.items.map((c) => (
-              <tr
-                key={c.id}
-                className="border-t border-ogun-border hover:bg-ogun-bg/50 cursor-pointer"
-                onClick={undefined}
-              >
-                <td colSpan={7} className="p-0">
-                  <Link
-                    href={`/merchants/${id}/collections/${c.id}`}
-                    className="no-underline text-ogun-text flex"
-                  >
-                    <span className="mono text-xs px-3 py-2 flex-shrink-0 w-[240px]">{c.id}</span>
-                    <span className="px-3 py-2 flex-shrink-0 w-[120px] text-xs">{(c as Record<string, unknown>).sub_merchant_name as string ?? c.sub_merchant_id}</span>
-                    <span className="px-3 py-2 flex-shrink-0 w-[70px]">{c.method}</span>
-                    <span className="px-3 py-2 flex-shrink-0 w-[90px] text-right">KES {(Number(c.amount) / 100).toLocaleString()}</span>
-                    <span className="px-3 py-2 flex-shrink-0 w-[90px] text-right text-ogun-muted">KES {(Number(c.fee_amount) / 100).toLocaleString()}</span>
-                    <span className="px-3 py-2 flex-shrink-0 w-[100px]"><Badge status={c.business_status} /></span>
-                    <span className="px-3 py-2 flex-1 text-xs text-ogun-muted">{formatIsoDate(c.created_at)}</span>
+              <tr key={c.id} className="border-t border-ogun-border hover:bg-ogun-bg/50">
+                <td>
+                  <Link href={`/merchants/${id}/collections/${c.id}`} className="mono text-xs no-underline text-ogun-accent-on-dark">
+                    {c.id}
                   </Link>
                 </td>
+                <td className="text-xs">{(c as Record<string, unknown>).sub_merchant_name as string ?? c.sub_merchant_id}</td>
+                <td>{c.method}</td>
+                <td className="text-right">KES {(Number(c.amount) / 100).toLocaleString()}</td>
+                <td className="text-right text-ogun-muted">KES {(Number(c.fee_amount) / 100).toLocaleString()}</td>
+                <td><Badge status={c.business_status} /></td>
+                <td className="text-xs text-ogun-muted">{formatIsoDate(c.created_at)}</td>
               </tr>
             ))}
           </tbody>

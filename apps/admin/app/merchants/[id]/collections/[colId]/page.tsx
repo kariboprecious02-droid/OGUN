@@ -302,59 +302,59 @@ export default async function CollectionDetailPage({
               <div className="text-xs text-ogun-muted mb-2">
                 API calls &amp; lifecycle events ({logs.events.length})
               </div>
-              <div className="overflow-x-auto mb-4">
-                <table className="table-default w-full text-xs">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Event</th>
-                      <th>Source</th>
-                      <th>HTTP</th>
-                      <th>Latency</th>
-                      <th>Message</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logs.events.map((e) => (
-                      <tr key={e.id} className="border-t border-ogun-border">
-                        <td className="whitespace-nowrap">{formatIsoDate(e.occurred_at)}</td>
-                        <td className="mono">{e.event_type}</td>
-                        <td>{e.source}</td>
-                        <td>{e.http_status ?? '—'}</td>
-                        <td>{e.latency_ms != null ? `${e.latency_ms}ms` : '—'}</td>
-                        <td className="text-ogun-muted max-w-[300px] truncate">{e.message ?? '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="overflow-x-auto mb-4 space-y-0">
+                {logs.events.map((e) => (
+                  <details key={e.id} className="border-t border-ogun-border group">
+                    <summary className="flex items-center gap-3 px-3 py-2 text-xs cursor-pointer hover:bg-ogun-bg/50 list-none">
+                      <span className="whitespace-nowrap text-ogun-muted w-[160px]">{formatIsoDate(e.occurred_at)}</span>
+                      <span className="mono font-medium w-[140px]">{e.event_type}</span>
+                      <span className="w-[80px] text-ogun-muted">{e.source}</span>
+                      <span className="w-[50px]">{e.http_status ?? '—'}</span>
+                      <span className="w-[60px]">{e.latency_ms != null ? `${e.latency_ms}ms` : '—'}</span>
+                      <span className="flex-1 text-ogun-muted truncate">{e.message ?? '—'}</span>
+                      <span className="text-ogun-accent-on-dark text-[10px]">▶</span>
+                    </summary>
+                    <div className="px-3 py-2 bg-ogun-bg border-l-2 border-ogun-accent-on-dark ml-3">
+                      <div className="text-[10px] text-ogun-muted uppercase mb-1">Payload</div>
+                      <pre className="text-xs mono overflow-x-auto whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto">
+                        {JSON.stringify(e.payload, null, 2)}
+                      </pre>
+                    </div>
+                  </details>
+                ))}
               </div>
 
+              <div className="text-xs text-ogun-muted mb-2">
+                Inbound Paystack webhooks ({logs.webhookEvents.length})
+              </div>
+              {logs.webhookEvents.length === 0 ? (
+                <p className="text-xs text-ogun-muted mb-4 p-2 bg-ogun-bg rounded-md border border-ogun-border">
+                  No inbound webhooks received from Paystack for this collection.
+                  {c.webhook_received_at ? '' : ' Transaction resolved via polling fallback.'}
+                </p>
+              ) : null}
               {logs.webhookEvents.length > 0 && (
                 <>
                   <div className="text-xs text-ogun-muted mb-2">
                     Inbound Paystack webhooks ({logs.webhookEvents.length})
                   </div>
-                  <div className="overflow-x-auto mb-4">
-                    <table className="table-default w-full text-xs">
-                      <thead>
-                        <tr>
-                          <th>Time</th>
-                          <th>Event</th>
-                          <th>Signature</th>
-                          <th>HTTP</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {logs.webhookEvents.map((w) => (
-                          <tr key={w.id} className="border-t border-ogun-border">
-                            <td className="whitespace-nowrap">{formatIsoDate(w.received_at)}</td>
-                            <td className="mono">{w.event_type}</td>
-                            <td>{w.signature_valid ? '✓ valid' : '✗ invalid'}</td>
-                            <td>{w.http_status_returned}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="overflow-x-auto mb-4 space-y-0">
+                    {logs.webhookEvents.map((w) => (
+                      <details key={w.id} className="border-t border-ogun-border">
+                        <summary className="flex items-center gap-3 px-3 py-2 text-xs cursor-pointer hover:bg-ogun-bg/50 list-none">
+                          <span className="whitespace-nowrap text-ogun-muted w-[160px]">{formatIsoDate(w.received_at)}</span>
+                          <span className="mono font-medium w-[140px]">{w.event_type}</span>
+                          <span className="w-[80px]">{w.signature_valid ? '✓ valid' : '✗ invalid'}</span>
+                          <span className="w-[50px]">{w.http_status_returned}</span>
+                          <span className="flex-1 text-ogun-accent-on-dark text-[10px]">▶ View payload</span>
+                        </summary>
+                        <div className="px-3 py-2 bg-ogun-bg border-l-2 border-ogun-accent-on-dark ml-3">
+                          <pre className="text-xs mono overflow-x-auto whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto">
+                            {JSON.stringify(w.raw_payload, null, 2)}
+                          </pre>
+                        </div>
+                      </details>
+                    ))}
                   </div>
                 </>
               )}
@@ -364,31 +364,34 @@ export default async function CollectionDetailPage({
                   <div className="text-xs text-ogun-muted mb-2">
                     Outbound merchant webhooks ({logs.webhookDeliveries.length})
                   </div>
-                  <div className="overflow-x-auto mb-4">
-                    <table className="table-default w-full text-xs">
-                      <thead>
-                        <tr>
-                          <th>Time</th>
-                          <th>Event</th>
-                          <th>URL</th>
-                          <th>Status</th>
-                          <th>HTTP</th>
-                          <th>Retries</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {logs.webhookDeliveries.map((d) => (
-                          <tr key={d.id} className="border-t border-ogun-border">
-                            <td className="whitespace-nowrap">{formatIsoDate(d.created_at)}</td>
-                            <td className="mono">{d.event_type}</td>
-                            <td className="mono text-ogun-muted max-w-[200px] truncate">{d.url}</td>
-                            <td><Badge status={d.delivery_status} /></td>
-                            <td>{d.http_status ?? '—'}</td>
-                            <td>{d.retry_count}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="overflow-x-auto mb-4 space-y-0">
+                    {logs.webhookDeliveries.map((d) => (
+                      <details key={d.id} className="border-t border-ogun-border">
+                        <summary className="flex items-center gap-3 px-3 py-2 text-xs cursor-pointer hover:bg-ogun-bg/50 list-none">
+                          <span className="whitespace-nowrap text-ogun-muted w-[160px]">{formatIsoDate(d.created_at)}</span>
+                          <span className="mono font-medium w-[140px]">{d.event_type}</span>
+                          <span className="mono text-ogun-muted w-[180px] truncate">{d.url}</span>
+                          <span className="w-[80px]"><Badge status={d.delivery_status} /></span>
+                          <span className="w-[40px]">{d.http_status ?? '—'}</span>
+                          <span className="w-[50px]">×{d.retry_count}</span>
+                          <span className="flex-1 text-ogun-accent-on-dark text-[10px]">▶ View payload</span>
+                        </summary>
+                        <div className="px-3 py-2 bg-ogun-bg border-l-2 border-ogun-accent-on-dark ml-3">
+                          <div className="text-[10px] text-ogun-muted uppercase mb-1">Event payload sent to merchant</div>
+                          <pre className="text-xs mono overflow-x-auto whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto">
+                            {JSON.stringify(d.payload, null, 2)}
+                          </pre>
+                          {d.response_body && (
+                            <>
+                              <div className="text-[10px] text-ogun-muted uppercase mt-2 mb-1">Merchant response</div>
+                              <pre className="text-xs mono overflow-x-auto whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto">
+                                {d.response_body}
+                              </pre>
+                            </>
+                          )}
+                        </div>
+                      </details>
+                    ))}
                   </div>
                 </>
               )}
