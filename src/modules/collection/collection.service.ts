@@ -697,7 +697,7 @@ export async function refundCollection(input: {
         ? {
             business_status: 'refunded' as const,
             internal_status: 'refunded' as CollectionInternalStatusValue,
-            settlement_eligible: alreadySettled ? row.settlement_eligible : false,
+            settlement_eligible: false,
           }
         : {}),
     });

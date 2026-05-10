@@ -41,12 +41,13 @@ async function fetchEligibleCollections(subMerchantId: string): Promise<Eligible
     fee_amount: string;
     refund_status: string;
   }>(
-    `SELECT id, amount, fee_amount, refund_status
+    `SELECT id, amount, fee_amount, refund_status, refunded_amount
        FROM collections
       WHERE sub_merchant_id = $1
         AND business_status = 'successful'
         AND settlement_eligible = true
-        AND settlement_batch_id IS NULL`,
+        AND settlement_batch_id IS NULL
+        AND refund_status = 'none'`,
     [subMerchantId],
   );
   return rows.map((r) => ({

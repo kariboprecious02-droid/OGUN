@@ -537,6 +537,8 @@ router.get('/admin/collections/:id', async (req, res, next) => {
       amount: Number(c.amount),
       fee_amount: Number(c.fee_amount),
       customer_amount: Number(c.customer_amount),
+      refunded_amount: c.refunded_amount != null ? Number(c.refunded_amount) : null,
+      poll_attempt_count: Number(c.poll_attempt_count ?? 0),
     }, { request_id: req.ogunContext.requestId }));
   } catch (err) {
     next(err);
