@@ -70,7 +70,12 @@ steps:
           --image=$$API_IMAGE \
           --region=us-central1 \
           --platform=managed \
-          --traffic=LATEST=100 \
+          --quiet
+
+        gcloud run services update-traffic ogun-api-prod \
+          --region=us-central1 \
+          --platform=managed \
+          --to-latest \
           --quiet
 
         # Deploy admin to production (service name: ogun-admin)
@@ -80,7 +85,12 @@ steps:
             --region=us-central1 \
             --platform=managed \
             --update-env-vars=OGUN_API_BASE_URL=https://ogun-api-prod-552820821813.us-central1.run.app/v1 \
-            --traffic=LATEST=100 \
+            --quiet
+
+          gcloud run services update-traffic ogun-admin \
+            --region=us-central1 \
+            --platform=managed \
+            --to-latest \
             --quiet
         fi
 
