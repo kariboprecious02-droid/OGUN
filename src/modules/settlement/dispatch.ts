@@ -51,12 +51,19 @@ export async function dispatchSettlementPayout(settlementId: string): Promise<vo
     destination_summary: SubMerchantDestination | null;
     settlement_destination: SubMerchantDestination | null;
     sub_merchant_name: string;
+    settlement_bank_name: string | null;
+    settlement_account_number: string | null;
+    settlement_branch_code: string | null;
+    settlement_account_holder: string | null;
   }>(
     `SELECT s.id, s.merchant_id, s.sub_merchant_id, s.net_amount, s.status,
             s.payout_id, s.destination_summary,
-            sm.settlement_destination, sm.name AS sub_merchant_name
+            sm.settlement_destination, sm.name AS sub_merchant_name,
+            ms.settlement_bank_name, ms.settlement_account_number,
+            ms.settlement_branch_code, ms.settlement_account_holder
        FROM settlements s
        JOIN sub_merchants sm ON sm.id = s.sub_merchant_id
+       LEFT JOIN merchant_settings ms ON ms.merchant_id = s.merchant_id AND ms.sub_merchant_id IS NULL
       WHERE s.id = $1
       LIMIT 1`,
     [settlementId],
@@ -71,12 +78,20 @@ export async function dispatchSettlementPayout(settlementId: string): Promise<vo
     return;
   }
 
-  const destination =
+  let destination =
     settlement.destination_summary ?? settlement.settlement_destination ?? null;
+  if (!destination && settlement.settlement_bank_name) {
+    destination = {
+      bank_name: settlement.settlement_bank_name,
+      account_number: settlement.settlement_account_number,
+      branch_code: settlement.settlement_branch_code,
+      beneficiary_name: settlement.settlement_account_holder,
+    } as SubMerchantDestination;
+  }
   if (!destination) {
     logger.warn(
       { settlementId },
-      'sub_merchant has no settlement_destination; payout rail skipped',
+      'no settlement destination on sub_merchant or merchant_settings; payout rail skipped',
     );
     return;
   }
@@ -134,7 +149,7 @@ export async function dispatchSettlementPayout(settlementId: string): Promise<vo
     merchant_id: settlement.merchant_id,
     sub_merchant_id: settlement.sub_merchant_id,
     beneficiary_type: isBank ? 'bank_account' : 'mobile_money',
-    provider: 'demo', // sandbox / demo default; production uses paystack
+    provider: isBank ? 'paystack' : (destination.mobile_number ? 'paystack' : 'demo'),
     provider_recipient_type: isBank ? 'kepss' : 'mobile_money',
     provider_recipient_code: null,
     name:
@@ -153,7 +168,7 @@ export async function dispatchSettlementPayout(settlementId: string): Promise<vo
     sub_merchant_id: settlement.sub_merchant_id,
     amount: netAmount,
     currency: 'KES',
-    method: 'demo', // sandbox default; prod uses bank_transfer / mobile_money
+    method: isBank ? 'bank_transfer' : (destination.mobile_number ? 'mobile_money' : 'demo'),
     beneficiary: { id: beneficiary.id },
     reference: `settlement:${settlementId}`,
     reason: 'Ogun settlement payout',

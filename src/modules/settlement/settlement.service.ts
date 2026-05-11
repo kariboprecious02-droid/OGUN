@@ -47,7 +47,8 @@ async function fetchEligibleCollections(subMerchantId: string): Promise<Eligible
         AND business_status = 'successful'
         AND settlement_eligible = true
         AND settlement_batch_id IS NULL
-        AND refund_status = 'none'`,
+        AND refund_status = 'none'
+      FOR UPDATE SKIP LOCKED`,
     [subMerchantId],
   );
   return rows.map((r) => ({
@@ -74,47 +75,60 @@ export async function createSettlement(input: {
   net: number;
   transaction_count: number;
 }> {
-  const eligible = await fetchEligibleCollections(input.subMerchantId);
-  if (eligible.length === 0) {
-    throw OgunError.invalidRequest('No eligible collections to settle');
-  }
-  const settings = await resolveEffectiveSettings(input.merchantId, input.subMerchantId);
+  return withTransaction(async (client) => {
+    // Lock eligible collections to prevent TOCTOU race with refunds (S-BUG-2)
+    const { rows: eligibleRows } = await client.query<{
+      id: string; amount: string; fee_amount: string; refund_status: string;
+    }>(
+      `SELECT id, amount, fee_amount, refund_status
+         FROM collections
+        WHERE sub_merchant_id = $1
+          AND business_status = 'successful'
+          AND settlement_eligible = true
+          AND settlement_batch_id IS NULL
+          AND refund_status = 'none'
+        FOR UPDATE SKIP LOCKED`,
+      [input.subMerchantId],
+    );
+    const eligible = eligibleRows.map((r) => ({
+      id: r.id, amount: Number(r.amount), fee_amount: Number(r.fee_amount),
+    }));
+    if (eligible.length === 0) {
+      throw OgunError.invalidRequest('No eligible collections to settle');
+    }
 
-  const gross = eligible.reduce((sum, c) => sum + c.amount, 0);
-  const fees = eligible.reduce((sum, c) => sum + c.fee_amount, 0);
-  const settlementFee = Math.round((gross * settings.settlement_fee_pct) / 100);
+    const settings = await resolveEffectiveSettings(input.merchantId, input.subMerchantId);
+    const gross = eligible.reduce((sum, c) => sum + c.amount, 0);
+    const fees = eligible.reduce((sum, c) => sum + c.fee_amount, 0);
+    const settlementFee = Math.round((gross * settings.settlement_fee_pct) / 100);
 
-  // Refund adjustments: previously settled collections that have been refunded
-  // since the last settlement run. For the MVP we query refunded, already
-  // settled collections that have not yet been adjusted.
-  const { rows: refundRows } = await query<{ refunded_amount: string; id: string }>(
-    `SELECT id, refunded_amount FROM collections
-      WHERE sub_merchant_id = $1
-        AND refund_status IN ('refunded','partial_refund')
-        AND settlement_batch_id IS NOT NULL
-        AND refund_timestamp IS NOT NULL
-        AND refund_timestamp > COALESCE(
-              (SELECT max(period_end) FROM settlements WHERE sub_merchant_id = $1),
-              '1970-01-01'::timestamptz
-            )`,
-    [input.subMerchantId],
-  );
-  const refundAdjustments = refundRows.reduce((sum, r) => sum + Number(r.refunded_amount ?? 0), 0);
+    const { rows: refundRows } = await client.query<{ refunded_amount: string; id: string }>(
+      `SELECT id, refunded_amount FROM collections
+        WHERE sub_merchant_id = $1
+          AND refund_status IN ('refunded','partial_refund')
+          AND settlement_batch_id IS NOT NULL
+          AND refund_timestamp IS NOT NULL
+          AND refund_timestamp > COALESCE(
+                (SELECT max(period_end) FROM settlements WHERE sub_merchant_id = $1),
+                '1970-01-01'::timestamptz
+              )`,
+      [input.subMerchantId],
+    );
+    const refundAdjustments = refundRows.reduce((sum, r) => sum + Number(r.refunded_amount ?? 0), 0);
 
-  const rawNet = gross - fees - settlementFee - refundAdjustments;
-  const roundingSubsidy = rawNet > 0 ? (100 - (rawNet % 100)) % 100 : 0;
-  const net = rawNet + roundingSubsidy;
+    const rawNet = gross - fees - settlementFee - refundAdjustments;
+    const roundingSubsidy = rawNet > 0 ? (100 - (rawNet % 100)) % 100 : 0;
+    const net = rawNet + roundingSubsidy;
 
-  const id = newId('settlement');
-  const periodEnd = new Date();
-  const periodStart = new Date(periodEnd.getTime() - 7 * 24 * 3600 * 1000);
+    const id = newId('settlement');
+    const periodEnd = new Date();
+    const periodStart = new Date(periodEnd.getTime() - 7 * 24 * 3600 * 1000);
 
-  if (roundingSubsidy > 0) {
-    logger.info({ settlement_id: id, rawNet, net, roundingSubsidy },
-      'settlement net rounded UP to whole KES');
-  }
+    if (roundingSubsidy > 0) {
+      logger.info({ settlement_id: id, rawNet, net, roundingSubsidy },
+        'settlement net rounded UP to whole KES');
+    }
 
-  await withTransaction(async (client) => {
     await client.query(
       `INSERT INTO settlements
          (id, merchant_id, sub_merchant_id, period_start, period_end,
@@ -122,20 +136,8 @@ export async function createSettlement(input: {
           other_adjustment_amount, net_amount, transaction_count, status,
           settlement_rounding_subsidy)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11,'created',$12)`,
-      [
-        id,
-        input.merchantId,
-        input.subMerchantId,
-        periodStart,
-        periodEnd,
-        gross,
-        fees,
-        settlementFee,
-        refundAdjustments,
-        net,
-        eligible.length,
-        roundingSubsidy,
-      ],
+      [id, input.merchantId, input.subMerchantId, periodStart, periodEnd,
+       gross, fees, settlementFee, refundAdjustments, net, eligible.length, roundingSubsidy],
     );
 
     for (const c of eligible) {
@@ -151,39 +153,20 @@ export async function createSettlement(input: {
       );
     }
 
-    if (refundAdjustments > 0) {
-      for (const r of refundRows) {
-        await client.query(
-          `INSERT INTO settlement_line_items
-             (id, settlement_id, reference_type, reference_id, amount, direction)
-           VALUES ($1,$2,'refund_adjustment',$3,$4,'debit')`,
-          [newId('settlementLine'), id, r.id, Number(r.refunded_amount ?? 0)],
-        );
-      }
+    for (const r of refundRows) {
+      await client.query(
+        `INSERT INTO settlement_line_items
+           (id, settlement_id, reference_type, reference_id, amount, direction)
+         VALUES ($1,$2,'refund_adjustment',$3,$4,'debit')`,
+        [newId('settlementLine'), id, r.id, Number(r.refunded_amount ?? 0)],
+      );
     }
+
+    logger.info({ settlement_id: id, sub_merchant_id: input.subMerchantId, gross, fees, refund_adjustments: refundAdjustments, net },
+      'settlement created');
+
+    return { settlement_id: id, gross, fees, settlement_fee: settlementFee, refund_adjustments: refundAdjustments, net, transaction_count: eligible.length };
   });
-
-  logger.info(
-    {
-      settlement_id: id,
-      sub_merchant_id: input.subMerchantId,
-      gross,
-      fees,
-      refund_adjustments: refundAdjustments,
-      net,
-    },
-    'settlement created',
-  );
-
-  return {
-    settlement_id: id,
-    gross,
-    fees,
-    settlement_fee: settlementFee,
-    refund_adjustments: refundAdjustments,
-    net,
-    transaction_count: eligible.length,
-  };
 }
 
 /**
@@ -205,22 +188,25 @@ export async function executeSettlement(settlementId: string): Promise<'paid' | 
     merchant_id: string;
     sub_merchant_id: string;
     net_amount: string;
+    settlement_rounding_subsidy: string;
     status: SettlementStatus;
   };
   const { rows } = await query<SettlementRow>(
-    `SELECT id, merchant_id, sub_merchant_id, net_amount, status
+    `SELECT id, merchant_id, sub_merchant_id, net_amount, settlement_rounding_subsidy, status
        FROM settlements WHERE id = $1`,
     [settlementId],
   );
   const settlement = rows[0];
   if (!settlement) throw OgunError.notFound('Settlement', settlementId);
   const netAmount = Number(settlement.net_amount);
+  const subsidy = Number(settlement.settlement_rounding_subsidy ?? 0);
+  const walletDebitAmount = netAmount - subsidy;
 
   let result = await withTransaction(async (client): Promise<'paid' | 'failed'> => {
     const wallet = await findWalletBySub(settlement.sub_merchant_id, 'collection');
     if (!wallet) throw new Error(`No collection wallet for ${settlement.sub_merchant_id}`);
     const locked = await lockWalletForUpdate(client, wallet.id);
-    if (locked.available_balance < netAmount) {
+    if (locked.available_balance < walletDebitAmount) {
       await client.query(
         `UPDATE settlements SET status = 'failed', updated_at = now() WHERE id = $1`,
         [settlementId],
@@ -234,7 +220,7 @@ export async function executeSettlement(settlementId: string): Promise<'paid' | 
       walletType: 'collection',
       transactionType: LedgerTxType.SettlementDebit,
       direction: 'debit',
-      amount: netAmount,
+      amount: walletDebitAmount,
       currency: wallet.currency,
       referenceType: 'settlement',
       referenceId: settlementId,
