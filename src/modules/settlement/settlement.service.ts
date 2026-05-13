@@ -192,7 +192,8 @@ export async function executeSettlement(settlementId: string): Promise<'paid' | 
     status: SettlementStatus;
   };
   const { rows } = await query<SettlementRow>(
-    `SELECT id, merchant_id, sub_merchant_id, net_amount, settlement_rounding_subsidy, status
+    `SELECT id, merchant_id, sub_merchant_id, net_amount,
+            COALESCE(settlement_rounding_subsidy, 0) AS settlement_rounding_subsidy, status
        FROM settlements WHERE id = $1`,
     [settlementId],
   );
@@ -207,6 +208,13 @@ export async function executeSettlement(settlementId: string): Promise<'paid' | 
     if (!wallet) throw new Error(`No collection wallet for ${settlement.sub_merchant_id}`);
     const locked = await lockWalletForUpdate(client, wallet.id);
     if (locked.available_balance < walletDebitAmount) {
+      logger.error({
+        settlementId,
+        available_balance: locked.available_balance,
+        walletDebitAmount,
+        netAmount,
+        subsidy,
+      }, 'settlement failed: insufficient wallet balance');
       await client.query(
         `UPDATE settlements SET status = 'failed', updated_at = now() WHERE id = $1`,
         [settlementId],

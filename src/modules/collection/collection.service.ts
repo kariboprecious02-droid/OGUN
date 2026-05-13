@@ -761,54 +761,36 @@ export async function refundCollection(input: {
 
   if (finalRow.provider === 'paystack' && finalRow.provider_reference) {
     setContextField('collection_id', finalRow.id);
-    try {
-      const connector = getCollectionConnector('paystack') as import('@/modules/connectors/paystack.collection.connector').PaystackCollectionConnector;
-      const refundResult = await connector.refundTransaction({
-        transaction_reference: finalRow.provider_reference,
+    recordCollectionEvent({
+      collection_id: finalRow.id,
+      event_type: 'refund.requested',
+      source: 'api',
+      payload: {
+        direction: 'Ogun → Paystack',
         amount: input.amount,
-      });
-      logger.info({
-        collection_id: finalRow.id,
-        refund_status: refundResult.status,
-        refund_reference: refundResult.refund_reference,
-      }, 'paystack refund dispatched');
-      if (refundResult.status) {
-        recordCollectionEvent({
-          collection_id: finalRow.id,
-          event_type: 'refund.dispatched',
-          source: 'connector',
-          payload: {
-            provider: 'paystack',
-            refund_reference: refundResult.refund_reference ?? null,
-            message: refundResult.message ?? null,
-          },
-          message: `paystack refund dispatched${refundResult.refund_reference ? ` (${refundResult.refund_reference})` : ''}`,
-        });
-      } else {
-        recordCollectionEvent({
-          collection_id: finalRow.id,
-          event_type: 'refund.failed',
-          source: 'connector',
-          payload: {
-            provider: 'paystack',
-            message: refundResult.message ?? null,
-          },
-          message: `paystack refund failed: ${refundResult.message ?? 'unknown error'}`,
-        });
-      }
-    } catch (err) {
-      logger.error({ err, collection_id: finalRow.id }, 'paystack refund dispatch failed');
-      recordCollectionEvent({
-        collection_id: finalRow.id,
-        event_type: 'refund.failed',
-        source: 'connector',
-        payload: {
-          provider: 'paystack',
-          error: (err as Error).message,
-        },
-        message: `paystack refund dispatch threw: ${(err as Error).message}`,
-      });
-    }
+        transaction_reference: finalRow.provider_reference,
+      },
+      message: `refund requested: KES ${(input.amount / 100).toFixed(2)} via Paystack`,
+    });
+
+    dispatchRefundToPaystack(finalRow, input.amount).catch((err) => {
+      logger.error({ err, collection_id: finalRow.id }, 'initial refund dispatch failed — poller will retry');
+    });
+
+    await enqueuePollingJob({
+      referenceType: 'collection',
+      referenceId: finalRow.id,
+      providerReference: finalRow.provider_reference,
+      provider: finalRow.provider,
+    });
+
+    recordCollectionEvent({
+      collection_id: finalRow.id,
+      event_type: 'polling.enqueued',
+      source: 'orchestrator',
+      payload: { reason: 'refund_confirmation', provider_reference: finalRow.provider_reference },
+      message: 'refund polling enqueued — will check Paystack until refund confirmed',
+    });
   }
 
   await emitEvent({
@@ -836,6 +818,31 @@ export async function refundCollection(input: {
  * refund_status (partial vs full) and flips business_status='refunded' on
  * a full refund.
  */
+async function dispatchRefundToPaystack(row: CollectionRow, amount: number): Promise<void> {
+  const connector = getCollectionConnector('paystack') as import('@/modules/connectors/paystack.collection.connector').PaystackCollectionConnector;
+  const refundResult = await connector.refundTransaction({
+    transaction_reference: row.provider_reference!,
+    amount,
+  });
+  logger.info({ collection_id: row.id, refund_status: refundResult.status, refund_reference: refundResult.refund_reference },
+    'paystack refund dispatched');
+  recordCollectionEvent({
+    collection_id: row.id,
+    event_type: refundResult.status ? 'refund.dispatched' : 'refund.failed',
+    source: 'connector',
+    payload: {
+      direction: 'Paystack → Ogun',
+      provider: 'paystack',
+      refund_reference: refundResult.refund_reference ?? null,
+      message: refundResult.message ?? null,
+      status: refundResult.status,
+    },
+    message: refundResult.status
+      ? `paystack refund dispatched${refundResult.refund_reference ? ` (${refundResult.refund_reference})` : ''}`
+      : `paystack refund failed: ${refundResult.message ?? 'unknown'}`,
+  });
+}
+
 export async function applyRefundWebhook(input: {
   collection_id: string;
   refund_amount: number;
