@@ -10,7 +10,7 @@
  *   6. On failure/timeout: wallet untouched, business_status=failed.
  */
 
-import { withTransaction } from '@/infra/db/pool';
+import { withTransaction, query } from '@/infra/db/pool';
 import { newId } from '@/infra/ids';
 import { OgunError } from '@/infra/errors';
 import { logger } from '@/infra/logger';
@@ -771,22 +771,7 @@ export async function refundCollection(input: {
     });
 
     dispatchRefundToPaystack(finalRow, input.amount).catch((err) => {
-      logger.error({ err, collection_id: finalRow.id }, 'initial refund dispatch failed — poller will retry');
-    });
-
-    await enqueuePollingJob({
-      referenceType: 'collection',
-      referenceId: finalRow.id,
-      providerReference: finalRow.provider_reference,
-      provider: finalRow.provider,
-    });
-
-    recordCollectionEvent({
-      collection_id: finalRow.id,
-      event_type: 'polling.enqueued',
-      source: 'orchestrator',
-      payload: { reason: 'refund_confirmation', provider_reference: finalRow.provider_reference },
-      message: 'refund polling enqueued — will check Paystack until refund confirmed',
+      logger.error({ err, collection_id: finalRow.id }, 'initial refund dispatch failed — refund poller will retry');
     });
   }
 
@@ -821,8 +806,16 @@ async function dispatchRefundToPaystack(row: CollectionRow, amount: number): Pro
     transaction_reference: row.provider_reference!,
     amount,
   });
-  logger.info({ collection_id: row.id, refund_status: refundResult.status, refund_reference: refundResult.refund_reference },
+  logger.info({ collection_id: row.id, refund_status: refundResult.status, refund_id: refundResult.refund_id, refund_reference: refundResult.refund_reference },
     'paystack refund dispatched');
+
+  if (refundResult.refund_id) {
+    await query(
+      `UPDATE collections SET provider_refund_id = $2, provider_refund_status = 'pending', updated_at = now() WHERE id = $1`,
+      [row.id, refundResult.refund_id],
+    );
+  }
+
   recordCollectionEvent({
     collection_id: row.id,
     event_type: refundResult.status ? 'refund.dispatched' : 'refund.failed',
@@ -830,6 +823,7 @@ async function dispatchRefundToPaystack(row: CollectionRow, amount: number): Pro
     payload: {
       direction: 'Paystack → Ogun',
       provider: 'paystack',
+      refund_id: refundResult.refund_id,
       refund_reference: refundResult.refund_reference ?? null,
       message: refundResult.message ?? null,
       status: refundResult.status,

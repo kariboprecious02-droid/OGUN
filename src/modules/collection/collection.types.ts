@@ -105,6 +105,8 @@ export type CollectionRow = {
   refunded_amount: number | null;
   refund_timestamp: Date | null;
   refund_reference: string | null;
+  provider_refund_id: number | null;
+  provider_refund_status: string | null;
   settlement_batch_id: string | null;
   metadata: Record<string, unknown> | null;
   idempotency_key: string | null;

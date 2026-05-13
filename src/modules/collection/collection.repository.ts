@@ -126,6 +126,8 @@ export async function updateCollectionStatus(
     refunded_amount?: number | null;
     refund_timestamp?: Date | null;
     refund_reference?: string | null;
+    provider_refund_id?: number | null;
+    provider_refund_status?: string | null;
   },
 ): Promise<void> {
   const sets: string[] = [];

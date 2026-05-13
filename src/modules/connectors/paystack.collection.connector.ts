@@ -239,15 +239,16 @@ export class PaystackCollectionConnector implements CollectionConnector {
   async refundTransaction(input: {
     transaction_reference: string;
     amount?: number;
-  }): Promise<{ status: boolean; refund_reference?: string; message?: string }> {
+  }): Promise<{ status: boolean; refund_id?: number; refund_reference?: string; message?: string }> {
     try {
       const { data } = await this.http.post('/refund', {
         transaction: input.transaction_reference,
         ...(input.amount != null ? { amount: input.amount } : {}),
       });
-      const resp = data as { status: boolean; data?: { transaction?: { reference?: string } }; message?: string };
+      const resp = data as { status: boolean; data?: { id?: number; transaction?: { reference?: string }; status?: string }; message?: string };
       return {
         status: resp.status,
+        refund_id: resp.data?.id,
         refund_reference: resp.data?.transaction?.reference,
         message: resp.message,
       };
@@ -258,6 +259,24 @@ export class PaystackCollectionConnector implements CollectionConnector {
         status: false,
         message: (axiosErr.response?.data as Record<string, unknown>)?.message as string ?? 'refund request failed',
       };
+    }
+  }
+
+  async getRefundStatus(refundId: number): Promise<{
+    status: string;
+    amount: number;
+    message?: string;
+  }> {
+    try {
+      const { data } = await this.http.get(`/refund/${refundId}`);
+      const resp = data as { status: boolean; data?: { status?: string; amount?: number }; message?: string };
+      return {
+        status: resp.data?.status ?? 'pending',
+        amount: resp.data?.amount ?? 0,
+        message: resp.message,
+      };
+    } catch (err) {
+      return { status: 'pending', amount: 0, message: (err as Error).message };
     }
   }
 }

@@ -5,6 +5,7 @@ import { runMigrations } from './infra/db/migrate';
 import { tickPoller } from './modules/polling/polling.service';
 import { dispatchDelivery } from './modules/webhook/webhook.service';
 import { tickSettlementScheduler } from './modules/settlement/scheduler';
+import { tickRefundPoller } from './modules/polling/refundPoller';
 import { query } from './infra/db/pool';
 import { isWorkerModeEnabled, startWorkers, stopWorkers } from './infra/queue';
 
@@ -35,6 +36,7 @@ async function main(): Promise<void> {
   let pollerInterval: NodeJS.Timeout | null = null;
   let webhookInterval: NodeJS.Timeout | null = null;
   let settlementInterval: NodeJS.Timeout | null = null;
+  let refundPollerInterval: NodeJS.Timeout | null = null;
 
   if (isWorkerModeEnabled()) {
     await startWorkers();
@@ -46,6 +48,11 @@ async function main(): Promise<void> {
     settlementInterval = setInterval(() => {
       tickSettlementScheduler().catch((err) =>
         logger.error({ err }, 'settlement scheduler tick failed'));
+    }, 60_000);
+
+    refundPollerInterval = setInterval(() => {
+      tickRefundPoller().catch((err) =>
+        logger.error({ err }, 'refund poller tick failed'));
     }, 60_000);
 
     webhookInterval = setInterval(async () => {
@@ -70,6 +77,7 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'shutting down');
     if (pollerInterval) clearInterval(pollerInterval);
     if (settlementInterval) clearInterval(settlementInterval);
+    if (refundPollerInterval) clearInterval(refundPollerInterval);
     if (webhookInterval) clearInterval(webhookInterval);
     await stopWorkers();
     server.close(() => process.exit(0));
