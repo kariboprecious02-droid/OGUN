@@ -90,7 +90,13 @@ export default async function MerchantCollectionsTab({
                 <td>{c.method}</td>
                 <td className="text-right">KES {(Number(c.amount) / 100).toLocaleString()}</td>
                 <td className="text-right text-ogun-muted">KES {(Number(c.fee_amount) / 100).toLocaleString()}</td>
-                <td><Badge status={c.business_status} /></td>
+                <td>
+                  {c.refund_status === 'partial_refund' ? (
+                    <Badge status="partial_refund" />
+                  ) : (
+                    <Badge status={c.business_status} />
+                  )}
+                </td>
                 <td className="text-xs text-ogun-muted">{formatIsoDate(c.created_at)}</td>
               </tr>
             ))}
