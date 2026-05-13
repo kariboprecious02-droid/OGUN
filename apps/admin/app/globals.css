@@ -60,6 +60,9 @@
   .badge-suspended {
     @apply bg-ogun-danger/20 text-ogun-danger;
   }
+  .badge-partial_refund {
+    @apply bg-ogun-accent/20 text-ogun-accent-on-dark;
+  }
   .badge-draft,
   .badge-submitted,
   .badge-under_ai_review,

@@ -123,7 +123,13 @@ export default async function CollectionDetailPage({
               <span className="text-xl font-semibold">
                 KES {gross.toLocaleString()}
               </span>
-              <Badge status={c.business_status} />
+              <Badge
+                status={
+                  c.refund_status === 'partial_refund'
+                    ? 'partial_refund'
+                    : c.business_status
+                }
+              />
             </div>
           </div>
           <div className="flex gap-2 mt-3 flex-wrap">

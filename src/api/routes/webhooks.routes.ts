@@ -13,6 +13,7 @@ import { getCollectionConnector, getPayoutConnector } from '@/modules/connectors
 import {
   findCollectionByProviderRef,
   resolveCollection,
+  applyRefundWebhook,
 } from '@/modules/collection/collection.service';
 import { findPayoutByProviderRef, resolvePayout } from '@/modules/payout/payout.service';
 import { sha256Hex } from '@/infra/crypto';
@@ -113,6 +114,86 @@ router.post('/webhooks/paystack', raw({ type: 'application/json' }), async (req,
             ? ((body as Record<string, unknown>).data as Record<string, unknown>).gateway_response as string | undefined
             : undefined,
           payloadHash: sha256Hex(payload),
+        });
+      }
+      return res.status(200).send('ok');
+    }
+
+    if (event.startsWith('refund.')) {
+      const connector = getCollectionConnector('paystack');
+      const sigValid = connector.validateWebhookSignature(payload, req.headers as Record<string, string>);
+      if (!sigValid) {
+        return res.status(401).send('invalid signature');
+      }
+      const data = (body as { data?: Record<string, unknown> }).data ?? {};
+      const tx = data.transaction as Record<string, unknown> | undefined;
+      const providerRef = (tx?.reference as string | undefined) ?? '';
+      const collection = providerRef
+        ? await findCollectionByProviderRef(providerRef)
+        : null;
+      if (!collection) {
+        logger.warn({ event, providerRef }, 'unknown collection in paystack refund webhook');
+        return res.status(200).send('ok');
+      }
+
+      query(
+        `INSERT INTO paystack_webhook_events
+           (id, collection_id, event_type, raw_payload, signature_valid, http_status_returned, received_at)
+         VALUES ($1,$2,$3,$4,$5,200,now())`,
+        [newId('event'), collection.id, event, JSON.stringify(body), sigValid],
+      ).catch((err) => logger.error({ err }, 'failed to persist paystack refund webhook event'));
+
+      const refundAmount = typeof data.amount === 'number' ? (data.amount as number) : null;
+      const refundId = (data.id ?? '').toString();
+      const refundRef = refundId ? `paystack:${refundId}` : `paystack:${providerRef}:${event}`;
+
+      recordCollectionEvent({
+        collection_id: collection.id,
+        event_type: 'webhook.received',
+        source: 'webhook',
+        payload: {
+          event,
+          provider_reference: providerRef,
+          refund_amount: refundAmount,
+          refund_status: data.status ?? null,
+          refund_reference: refundRef,
+        },
+        message: `paystack webhook: ${event}`,
+      });
+
+      if (event === 'refund.processed' && refundAmount !== null) {
+        const result = await applyRefundWebhook({
+          collection_id: collection.id,
+          refund_amount: refundAmount,
+          refund_reference: refundRef,
+        });
+        if (result.applied) {
+          recordCollectionEvent({
+            collection_id: collection.id,
+            event_type: 'refund.completed',
+            source: 'webhook',
+            payload: {
+              provider: 'paystack',
+              refund_amount: refundAmount,
+              total_refunded: result.total_refunded,
+              is_full: result.is_full,
+              refund_reference: refundRef,
+            },
+            message: `paystack refund processed (${refundAmount}, ${result.is_full ? 'full' : 'partial'})`,
+          });
+        }
+      } else if (event === 'refund.failed') {
+        recordCollectionEvent({
+          collection_id: collection.id,
+          event_type: 'refund.failed',
+          source: 'webhook',
+          payload: {
+            provider: 'paystack',
+            refund_amount: refundAmount,
+            refund_status: data.status ?? null,
+            refund_reference: refundRef,
+          },
+          message: `paystack refund failed${data.status ? `: ${data.status}` : ''}`,
         });
       }
       return res.status(200).send('ok');

@@ -18,7 +18,10 @@ export type CollectionEventType =
   | 'webhook.received'
   | 'state.changed'
   | 'wallet.credited'
-  | 'refund.requested';
+  | 'refund.requested'
+  | 'refund.dispatched'
+  | 'refund.completed'
+  | 'refund.failed';
 
 export type CollectionEventSource =
   | 'api'
