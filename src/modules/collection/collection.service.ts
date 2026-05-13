@@ -738,6 +738,21 @@ export async function refundCollection(input: {
       },
     });
 
+    await recordCollectionEventSync({
+      collection_id: row.id,
+      event_type: 'refund.requested',
+      source: 'api',
+      payload: {
+        refund_amount: input.amount,
+        total_refunded: totalRefunded,
+        is_full: isFull,
+        already_settled: alreadySettled,
+        reference: refundRef,
+        reason: input.reason ?? null,
+      },
+      message: `Refund posted (${input.amount}, ${isFull ? 'full' : 'partial'})`,
+    });
+
     return { ...row, refunded_amount: totalRefunded } as CollectionRow;
   });
 
@@ -745,6 +760,7 @@ export async function refundCollection(input: {
   if (!finalRow) return updated;
 
   if (finalRow.provider === 'paystack' && finalRow.provider_reference) {
+    setContextField('collection_id', finalRow.id);
     try {
       const connector = getCollectionConnector('paystack') as import('@/modules/connectors/paystack.collection.connector').PaystackCollectionConnector;
       const refundResult = await connector.refundTransaction({
@@ -756,8 +772,42 @@ export async function refundCollection(input: {
         refund_status: refundResult.status,
         refund_reference: refundResult.refund_reference,
       }, 'paystack refund dispatched');
+      if (refundResult.status) {
+        recordCollectionEvent({
+          collection_id: finalRow.id,
+          event_type: 'refund.dispatched',
+          source: 'connector',
+          payload: {
+            provider: 'paystack',
+            refund_reference: refundResult.refund_reference ?? null,
+            message: refundResult.message ?? null,
+          },
+          message: `paystack refund dispatched${refundResult.refund_reference ? ` (${refundResult.refund_reference})` : ''}`,
+        });
+      } else {
+        recordCollectionEvent({
+          collection_id: finalRow.id,
+          event_type: 'refund.failed',
+          source: 'connector',
+          payload: {
+            provider: 'paystack',
+            message: refundResult.message ?? null,
+          },
+          message: `paystack refund failed: ${refundResult.message ?? 'unknown error'}`,
+        });
+      }
     } catch (err) {
       logger.error({ err, collection_id: finalRow.id }, 'paystack refund dispatch failed');
+      recordCollectionEvent({
+        collection_id: finalRow.id,
+        event_type: 'refund.failed',
+        source: 'connector',
+        payload: {
+          provider: 'paystack',
+          error: (err as Error).message,
+        },
+        message: `paystack refund dispatch threw: ${(err as Error).message}`,
+      });
     }
   }
 
@@ -777,6 +827,49 @@ export async function refundCollection(input: {
   });
 
   return finalRow;
+}
+
+/**
+ * Apply a provider-originated refund webhook (e.g. Paystack refund.processed).
+ * Idempotent: if the same refund_reference has already been recorded with at
+ * least the same refunded_amount, this is a no-op. Otherwise it advances
+ * refund_status (partial vs full) and flips business_status='refunded' on
+ * a full refund.
+ */
+export async function applyRefundWebhook(input: {
+  collection_id: string;
+  refund_amount: number;
+  refund_reference: string;
+}): Promise<{ applied: boolean; is_full: boolean; total_refunded: number }> {
+  return withTransaction(async (client) => {
+    const row = await lockCollection(client, input.collection_id);
+    if (
+      row.refund_reference === input.refund_reference &&
+      (row.refunded_amount ?? 0) >= input.refund_amount
+    ) {
+      return {
+        applied: false,
+        is_full: (row.refunded_amount ?? 0) >= row.amount,
+        total_refunded: row.refunded_amount ?? 0,
+      };
+    }
+    const totalRefunded = Math.max(row.refunded_amount ?? 0, input.refund_amount);
+    const isFull = totalRefunded >= row.amount;
+    await updateCollectionStatus(client, row.id, {
+      refund_status: isFull ? 'refunded' : 'partial_refund',
+      refunded_amount: totalRefunded,
+      refund_timestamp: new Date(),
+      refund_reference: input.refund_reference,
+      ...(isFull
+        ? {
+            business_status: 'refunded' as const,
+            internal_status: 'refunded' as CollectionInternalStatusValue,
+            settlement_eligible: false,
+          }
+        : {}),
+    });
+    return { applied: true, is_full: isFull, total_refunded: totalRefunded };
+  });
 }
 
 /**

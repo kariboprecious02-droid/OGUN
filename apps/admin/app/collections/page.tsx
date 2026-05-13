@@ -64,14 +64,13 @@ export default async function CollectionsPage({
               <th>business_status</th>
               <th>internal_status</th>
               <th>Settled?</th>
-              <th>Refund</th>
               <th>Created</th>
             </tr>
           </thead>
           <tbody>
             {result.items.length === 0 && (
               <tr>
-                <td colSpan={9} className="text-center text-ogun-muted py-8">
+                <td colSpan={8} className="text-center text-ogun-muted py-8">
                   No collections match this filter.
                 </td>
               </tr>
@@ -88,7 +87,13 @@ export default async function CollectionsPage({
                   {formatCents(c.fee_amount, c.currency)}
                 </td>
                 <td>
-                  <Badge status={c.business_status} />
+                  <Badge
+                    status={
+                      c.refund_status === 'partial_refund'
+                        ? 'partial_refund'
+                        : c.business_status
+                    }
+                  />
                 </td>
                 <td className="text-xs text-ogun-muted mono">{c.internal_status}</td>
                 <td className="text-xs">
@@ -96,13 +101,6 @@ export default async function CollectionsPage({
                     <span className="text-ogun-success">eligible</span>
                   ) : (
                     <span className="text-ogun-muted">no</span>
-                  )}
-                </td>
-                <td className="text-xs">
-                  {c.refund_status !== 'none' ? (
-                    <span className="text-ogun-warn">{c.refund_status}</span>
-                  ) : (
-                    <span className="text-ogun-muted">—</span>
                   )}
                 </td>
                 <td className="text-xs text-ogun-muted">{formatIsoDate(c.created_at)}</td>

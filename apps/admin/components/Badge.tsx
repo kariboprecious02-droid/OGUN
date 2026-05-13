@@ -1,5 +1,14 @@
-export function Badge({ status }: { status: string }): React.ReactElement {
-  return <span className={`badge badge-${status}`}>{status}</span>;
+const STATUS_LABELS: Record<string, string> = {
+  partial_refund: 'Partial refund',
+  refunded: 'Refunded',
+  successful: 'Successful',
+  failed: 'Failed',
+  pending: 'Pending',
+};
+
+export function Badge({ status, label }: { status: string; label?: string }): React.ReactElement {
+  const text = label ?? STATUS_LABELS[status] ?? status;
+  return <span className={`badge badge-${status}`}>{text}</span>;
 }
 
 export function formatCents(amount: number, currency = 'KES'): string {
