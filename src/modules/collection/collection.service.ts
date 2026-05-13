@@ -642,6 +642,7 @@ export async function refundCollection(input: {
   reason?: string;
 }): Promise<CollectionRow> {
   const updated = await withTransaction(async (client) => {
+    await client.query('SET LOCAL statement_timeout = 10000');
     const row = await lockCollection(client, input.collection_id);
     if (row.business_status !== 'successful') {
       throw OgunError.invalidRequest(
@@ -738,22 +739,18 @@ export async function refundCollection(input: {
       },
     });
 
-    await recordCollectionEventSync({
-      collection_id: row.id,
-      event_type: 'refund.requested',
-      source: 'api',
-      payload: {
-        refund_amount: input.amount,
-        total_refunded: totalRefunded,
-        is_full: isFull,
-        already_settled: alreadySettled,
-        reference: refundRef,
-        reason: input.reason ?? null,
-      },
-      message: `Refund posted (${input.amount}, ${isFull ? 'full' : 'partial'})`,
-    });
-
     return { ...row, refunded_amount: totalRefunded } as CollectionRow;
+  });
+
+  recordCollectionEvent({
+    collection_id: input.collection_id,
+    event_type: 'refund.requested',
+    source: 'api',
+    payload: {
+      refund_amount: input.amount,
+      reason: input.reason ?? null,
+    },
+    message: `Refund posted (${input.amount / 100} KES)`,
   });
 
   const finalRow = await findCollection(input.collection_id);
