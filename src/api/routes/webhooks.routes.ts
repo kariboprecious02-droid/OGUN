@@ -82,14 +82,19 @@ router.post('/webhooks/paystack', raw({ type: 'application/json' }), async (req,
       }
       const parsed = connector.parseWebhook(payload, req.headers as Record<string, string>);
       const collection = await findCollectionByProviderRef(parsed.provider_reference);
-      if (!collection) return res.status(200).send('ok');
 
       query(
         `INSERT INTO paystack_webhook_events
            (id, collection_id, event_type, raw_payload, signature_valid, http_status_returned, received_at)
          VALUES ($1,$2,$3,$4,$5,200,now())`,
-        [newId('event'), collection.id, event, JSON.stringify(body), sigValid],
+        [newId('event'), collection?.id ?? null, event, JSON.stringify(body), sigValid],
       ).catch((err) => logger.error({ err }, 'failed to persist paystack webhook event'));
+
+      if (!collection) {
+        logger.warn({ event, providerRef: parsed.provider_reference },
+          'unattributed paystack webhook — persisted for forensics');
+        return res.status(200).send('ok');
+      }
 
       recordCollectionEvent({
         collection_id: collection.id,
@@ -131,17 +136,19 @@ router.post('/webhooks/paystack', raw({ type: 'application/json' }), async (req,
       const collection = providerRef
         ? await findCollectionByProviderRef(providerRef)
         : null;
-      if (!collection) {
-        logger.warn({ event, providerRef }, 'unknown collection in paystack refund webhook');
-        return res.status(200).send('ok');
-      }
 
       query(
         `INSERT INTO paystack_webhook_events
            (id, collection_id, event_type, raw_payload, signature_valid, http_status_returned, received_at)
          VALUES ($1,$2,$3,$4,$5,200,now())`,
-        [newId('event'), collection.id, event, JSON.stringify(body), sigValid],
+        [newId('event'), collection?.id ?? null, event, JSON.stringify(body), sigValid],
       ).catch((err) => logger.error({ err }, 'failed to persist paystack refund webhook event'));
+
+      if (!collection) {
+        logger.warn({ event, providerRef },
+          'unattributed paystack refund webhook — persisted for forensics');
+        return res.status(200).send('ok');
+      }
 
       const refundAmount = typeof data.amount === 'number' ? (data.amount as number) : null;
       const refundId = (data.id ?? '').toString();

@@ -1,5 +1,7 @@
 -- Persist inbound Paystack webhook raw payloads for forensic debug.
 -- Powers the Integration Logs tab on the collection detail view.
+-- collection_id is nullable: webhooks may arrive for collections that
+-- exist in a different environment's database (shared-credentials topology).
 
 CREATE TABLE IF NOT EXISTS paystack_webhook_events (
   id                   varchar(40) PRIMARY KEY,
@@ -12,5 +14,5 @@ CREATE TABLE IF NOT EXISTS paystack_webhook_events (
   processed_at         timestamptz
 );
 
-CREATE INDEX idx_paystack_webhook_events_collection
+CREATE INDEX IF NOT EXISTS idx_paystack_webhook_events_collection
   ON paystack_webhook_events(collection_id);

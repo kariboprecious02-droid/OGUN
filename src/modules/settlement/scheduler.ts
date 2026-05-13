@@ -39,7 +39,15 @@ export async function tickSettlementScheduler(): Promise<void> {
       ? new Date(lastSettlement[0].created_at).getTime()
       : 0;
 
-    if (Date.now() - lastAt < intervalMs) continue;
+    if (Date.now() - lastAt < intervalMs) {
+      logger.info({
+        sub_merchant_id: sub.sub_merchant_id,
+        frequency: sub.settlement_frequency,
+        last_settlement: lastSettlement[0]?.created_at ?? 'never',
+        next_eligible: new Date(lastAt + intervalMs).toISOString(),
+      }, 'settlement scheduler: skipping — not yet due');
+      continue;
+    }
 
     try {
       const result = await createSettlement({

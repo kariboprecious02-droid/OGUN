@@ -61,7 +61,7 @@ async function checkRefundStatus(row: {
     new_status: result.status,
   }, 'refund poller tick');
 
-  if (result.status === row.provider_refund_status) return;
+  if (result.status === row.provider_refund_status || result.status === 'pending') return;
 
   await query(
     `UPDATE collections SET provider_refund_status = $2, updated_at = now() WHERE id = $1`,
