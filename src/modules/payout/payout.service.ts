@@ -85,7 +85,7 @@ async function resolveBeneficiary(input: CreatePayoutInput): Promise<Beneficiary
     sub_merchant_id: input.sub_merchant_id,
     beneficiary_type: beneficiaryType,
     provider: input.method === 'demo' ? 'demo' : 'paystack',
-    provider_recipient_type: beneficiaryType === 'mobile_money' ? 'mobile_money' : 'kepss',
+    provider_recipient_type: beneficiaryType === 'mobile_money' ? 'mobile_money' : 'nuban',
     provider_recipient_code: null,
     name: input.beneficiary.name ?? 'Unknown',
     mobile_number: input.beneficiary.mobile_number ?? null,
@@ -217,7 +217,7 @@ async function dispatchPayout(payoutId: string, beneficiary: BeneficiaryRow): Pr
   if (!beneficiary.provider_recipient_code && row.provider === 'paystack') {
     const { PaystackPayoutConnector } = await import('@/modules/connectors/paystack.payout.connector');
     if (connector instanceof PaystackPayoutConnector) {
-      const recipientType = beneficiary.beneficiary_type === 'bank_account' ? 'kepss' as const : 'mobile_money' as const;
+      const recipientType = beneficiary.beneficiary_type === 'bank_account' ? 'nuban' as const : 'mobile_money' as const;
       const recipientCode = await connector.resolveRecipient({
         type: recipientType,
         name: beneficiary.name,

@@ -70,7 +70,7 @@ export async function createBeneficiary(
 
   let providerRecipientCode: string | null = null;
   const providerRecipientType =
-    input.beneficiary_type === 'mobile_money' ? 'mobile_money' : 'kepss';
+    input.beneficiary_type === 'mobile_money' ? 'mobile_money' : 'nuban';
   let verificationStatus: 'pending' | 'verified' | 'failed' = 'pending';
 
   // Best-effort Paystack recipient creation.  If we're in sandbox or
@@ -79,7 +79,7 @@ export async function createBeneficiary(
     try {
       const connector = new PaystackPayoutConnector();
       providerRecipientCode = await connector.resolveRecipient({
-        type: providerRecipientType as 'mobile_money' | 'kepss',
+        type: providerRecipientType as 'mobile_money' | 'nuban',
         name: input.name,
         account_number:
           input.beneficiary_type === 'mobile_money'

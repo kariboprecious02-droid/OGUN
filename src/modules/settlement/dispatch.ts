@@ -29,6 +29,7 @@ import { LedgerTxType } from '@/modules/wallet/wallet.types';
 import { insertBeneficiary } from '@/modules/payout/beneficiary.repository';
 import { createPayout } from '@/modules/payout/payout.service';
 import { resolveEffectiveSettings } from '@/modules/merchant/settings.repository';
+import { resolvePaystackBankCode } from '@/modules/connectors/paystackBanks';
 
 type SubMerchantDestination = {
   bank_name?: string;
@@ -143,21 +144,28 @@ export async function dispatchSettlementPayout(settlementId: string): Promise<vo
   // Persist a beneficiary row for the destination and then create a
   // payout. The beneficiary is reused across retries by its per-settlement
   // idempotency key.
-  const isBank = !!(destination.account_number && (destination.bank_code || destination.branch_code));
+  const resolvedBankCode = destination.bank_code
+    ?? (destination.bank_name ? resolvePaystackBankCode(destination.bank_name) : null)
+    ?? null;
+  const isBank = !!(destination.account_number && resolvedBankCode);
+  if (destination.account_number && !resolvedBankCode && !destination.mobile_number) {
+    logger.warn({ settlementId, bank_name: destination.bank_name, branch_code: destination.branch_code },
+      'could not resolve Paystack bank code from destination — set a valid bank name or code');
+  }
   const beneficiary = await insertBeneficiary({
     id: newId('beneficiary'),
     merchant_id: settlement.merchant_id,
     sub_merchant_id: settlement.sub_merchant_id,
     beneficiary_type: isBank ? 'bank_account' : 'mobile_money',
     provider: isBank ? 'paystack' : (destination.mobile_number ? 'paystack' : 'demo'),
-    provider_recipient_type: isBank ? 'kepss' : 'mobile_money',
+    provider_recipient_type: isBank ? 'nuban' : 'mobile_money',
     provider_recipient_code: null,
     name:
       destination.beneficiary_name ??
       settlement.sub_merchant_name ??
       `Settlement recipient ${settlement.sub_merchant_id}`,
     mobile_number: destination.mobile_number ?? null,
-    bank_code: destination.bank_code ?? destination.branch_code ?? null,
+    bank_code: resolvedBankCode,
     account_number: destination.account_number ?? null,
     currency: 'KES',
     verification_status: 'verified',

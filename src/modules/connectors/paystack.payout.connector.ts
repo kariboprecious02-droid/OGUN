@@ -44,7 +44,7 @@ export class PaystackPayoutConnector implements PayoutConnector {
    * recipient_code in the Beneficiary row to avoid round-trips.
    */
   async resolveRecipient(input: {
-    type: 'mobile_money' | 'kepss';
+    type: 'mobile_money' | 'nuban';
     name: string;
     account_number: string;
     bank_code?: string;

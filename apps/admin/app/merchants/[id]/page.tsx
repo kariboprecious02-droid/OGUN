@@ -17,6 +17,7 @@ import {
   panelSendTestWebhookAction,
 } from './actions';
 import { Badge } from '@/components/Badge';
+import { KE_BANKS } from '@/lib/keBanks';
 
 type RotationFlash = {
   kind: 'secret' | 'webhook_secret';
@@ -342,7 +343,8 @@ function AccountsTab({
           Settlement account
         </h2>
         <p className="text-xs text-ogun-muted mb-4">
-          Bank or mobile money account where settlement payouts are sent.
+          Bank account where settlement payouts are sent via Paystack.
+          Select the bank from the dropdown — the Paystack bank code is set automatically.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <TextField
@@ -350,10 +352,11 @@ function AccountsTab({
             name="settlement_account_holder"
             defaultValue={s.settlement_account_holder ?? ''}
           />
-          <TextField
-            label="Bank name"
+          <SelectField
+            label="Bank"
             name="settlement_bank_name"
             defaultValue={s.settlement_bank_name ?? ''}
+            options={KE_BANKS.map((b) => ({ value: b.name, label: `${b.name} (${b.code})` }))}
           />
           <TextField
             label="Account number"
@@ -361,7 +364,7 @@ function AccountsTab({
             defaultValue={s.settlement_account_number ?? ''}
           />
           <TextField
-            label="Branch / SWIFT code"
+            label="Branch code (optional)"
             name="settlement_branch_code"
             defaultValue={s.settlement_branch_code ?? ''}
           />
