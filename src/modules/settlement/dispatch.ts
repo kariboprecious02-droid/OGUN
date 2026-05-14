@@ -74,6 +74,17 @@ export async function dispatchSettlementPayout(settlementId: string): Promise<vo
     logger.warn({ settlementId }, 'dispatchSettlementPayout: settlement not found');
     return;
   }
+
+  logger.info({
+    settlementId,
+    sub_merchant_id: settlement.sub_merchant_id,
+    net_amount: settlement.net_amount,
+    destination_summary: settlement.destination_summary,
+    settlement_destination: settlement.settlement_destination,
+    settlement_bank_name: settlement.settlement_bank_name,
+    payout_id: settlement.payout_id,
+  }, 'dispatchSettlementPayout: entering with destination state');
+
   if (settlement.payout_id) {
     logger.debug({ settlementId }, 'settlement payout already dispatched; skipping');
     return;
@@ -107,13 +118,22 @@ export async function dispatchSettlementPayout(settlementId: string): Promise<vo
   // perspective — the settlement_fee on the Settlement row already
   // represents our commercial take — so we credit the payout wallet
   // with total_debit, not just net.
-  const settings = await resolveEffectiveSettings(
-    settlement.merchant_id,
-    settlement.sub_merchant_id,
-  );
+  let settings;
+  try {
+    settings = await resolveEffectiveSettings(
+      settlement.merchant_id,
+      settlement.sub_merchant_id,
+    );
+  } catch (err) {
+    logger.error({ err, settlementId }, 'dispatchSettlementPayout: resolveEffectiveSettings threw');
+    throw err;
+  }
   const railFee = Math.round((netAmount * settings.payout_fee_pct) / 100);
   const totalDebit =
     settings.payout_fee_model === 'merchant_covers' ? netAmount + railFee : netAmount;
+
+  logger.info({ settlementId, railFee, totalDebit, isBank: !!(destination.account_number && (destination.bank_code ?? (destination.bank_name ? resolvePaystackBankCode(destination.bank_name) : null))) },
+    'dispatchSettlementPayout: pre-beneficiary state');
 
   await withTransaction(async (client) => {
     const payoutWallet = await findWalletBySub(settlement.sub_merchant_id, 'payout');

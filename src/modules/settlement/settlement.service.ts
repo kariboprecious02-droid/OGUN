@@ -294,7 +294,10 @@ export async function executeSettlement(settlementId: string): Promise<'paid' | 
       const { dispatchSettlementPayout } = await import('./dispatch');
       await dispatchSettlementPayout(settlementId);
     } catch (err) {
-      logger.error({ err, settlementId }, 'settlement payout dispatch failed — marking settlement as failed');
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const errStack = err instanceof Error ? err.stack : undefined;
+      logger.error({ err, settlementId, errMsg, errStack },
+        'settlement payout dispatch failed — marking settlement as failed');
       await query(
         `UPDATE settlements SET status = 'failed', updated_at = now() WHERE id = $1`,
         [settlementId],
