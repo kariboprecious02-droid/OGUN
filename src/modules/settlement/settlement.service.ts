@@ -97,10 +97,42 @@ export async function createSettlement(input: {
       throw OgunError.invalidRequest('No eligible collections to settle');
     }
 
+    const wallet = await findWalletBySub(input.subMerchantId, 'collection');
+    const walletBalance = wallet?.available_balance ?? 0;
+
     const settings = await resolveEffectiveSettings(input.merchantId, input.subMerchantId);
-    const gross = eligible.reduce((sum, c) => sum + c.amount, 0);
-    const fees = eligible.reduce((sum, c) => sum + c.fee_amount, 0);
-    const settlementFee = Math.round((gross * settings.settlement_fee_pct) / 100);
+
+    let capped = [...eligible];
+    let gross = capped.reduce((sum, c) => sum + c.amount, 0);
+    let fees = capped.reduce((sum, c) => sum + c.fee_amount, 0);
+    let settlementFee = Math.round((gross * settings.settlement_fee_pct) / 100);
+    let rawNetEstimate = gross - fees - settlementFee;
+
+    if (rawNetEstimate > walletBalance && walletBalance > 0) {
+      logger.warn({
+        sub_merchant_id: input.subMerchantId,
+        walletBalance,
+        rawNetEstimate,
+        eligible_count: eligible.length,
+      }, 'settlement: wallet cannot cover full batch — capping to available balance');
+
+      capped = [];
+      let runningNet = 0;
+      for (const c of eligible) {
+        const collNet = c.amount - c.fee_amount;
+        if (runningNet + collNet > walletBalance) break;
+        capped.push(c);
+        runningNet += collNet;
+      }
+      if (capped.length === 0) {
+        logger.warn({ sub_merchant_id: input.subMerchantId, walletBalance },
+          'settlement: wallet balance too low for even one collection — skipping');
+        throw OgunError.invalidRequest('Wallet balance too low for settlement');
+      }
+      gross = capped.reduce((sum, c) => sum + c.amount, 0);
+      fees = capped.reduce((sum, c) => sum + c.fee_amount, 0);
+      settlementFee = Math.round((gross * settings.settlement_fee_pct) / 100);
+    }
 
     const { rows: refundRows } = await client.query<{ refunded_amount: string; id: string }>(
       `SELECT id, refunded_amount FROM collections
@@ -137,10 +169,10 @@ export async function createSettlement(input: {
           settlement_rounding_subsidy)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11,'created',$12)`,
       [id, input.merchantId, input.subMerchantId, periodStart, periodEnd,
-       gross, fees, settlementFee, refundAdjustments, net, eligible.length, roundingSubsidy],
+       gross, fees, settlementFee, refundAdjustments, net, capped.length, roundingSubsidy],
     );
 
-    for (const c of eligible) {
+    for (const c of capped) {
       await client.query(
         `INSERT INTO settlement_line_items
            (id, settlement_id, reference_type, reference_id, amount, direction)
@@ -165,7 +197,7 @@ export async function createSettlement(input: {
     logger.info({ settlement_id: id, sub_merchant_id: input.subMerchantId, gross, fees, refund_adjustments: refundAdjustments, net },
       'settlement created');
 
-    return { settlement_id: id, gross, fees, settlement_fee: settlementFee, refund_adjustments: refundAdjustments, net, transaction_count: eligible.length };
+    return { settlement_id: id, gross, fees, settlement_fee: settlementFee, refund_adjustments: refundAdjustments, net, transaction_count: capped.length };
   });
 }
 
