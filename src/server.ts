@@ -6,6 +6,7 @@ import { tickPoller } from './modules/polling/polling.service';
 import { dispatchDelivery } from './modules/webhook/webhook.service';
 import { tickSettlementScheduler } from './modules/settlement/scheduler';
 import { tickRefundPoller } from './modules/polling/refundPoller';
+import { fetchPaystackBanks } from './modules/connectors/paystackBanks';
 import { query } from './infra/db/pool';
 import { isWorkerModeEnabled, startWorkers, stopWorkers } from './infra/queue';
 
@@ -15,6 +16,8 @@ async function main(): Promise<void> {
   } catch (err) {
     logger.error({ err }, 'migrations failed on startup — server will start but DB operations may fail');
   }
+
+  await fetchPaystackBanks().catch(() => {});
 
   const app = createApp();
 

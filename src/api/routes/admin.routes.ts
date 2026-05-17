@@ -1035,6 +1035,17 @@ const adminRotateBody = z.object({
   environment: z.enum(['sandbox', 'live']).default('sandbox'),
 });
 
+router.get('/admin/banks/kenya', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const { fetchPaystackBanks } = await import('@/modules/connectors/paystackBanks');
+    const banks = await fetchPaystackBanks();
+    res.json(success(banks, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/admin/merchants/:id/api-keys/rotate', async (req, res, next) => {
   try {
     requireAdmin(req);
