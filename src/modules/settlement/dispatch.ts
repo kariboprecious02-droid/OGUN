@@ -223,8 +223,30 @@ export async function dispatchSettlementPayout(settlementId: string): Promise<vo
 
   logger.info(
     { settlementId, payoutId: payoutResult.payout.id },
-    'settlement payout rail dispatched',
+    'settlement payout rail dispatched — waiting for provider response',
   );
+
+  // Wait for the async payout dispatch to complete (Paystack call).
+  // createPayout fires dispatchPayout via trackAsync (fire-and-forget).
+  // For settlements we need to know the outcome, so poll the payout
+  // status briefly to catch fast failures (like invalid bank code).
+  const payoutId = payoutResult.payout.id;
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const { rows: check } = await query<{ status: string }>(
+      `SELECT status FROM payouts WHERE id = $1`,
+      [payoutId],
+    );
+    const st = check[0]?.status;
+    if (st === 'succeeded' || st === 'processing' || st === 'pending_approval') {
+      logger.info({ settlementId, payoutId, payoutStatus: st },
+        'settlement payout provider accepted');
+      break;
+    }
+    if (st === 'failed' || st === 'cancelled') {
+      throw new Error(`settlement payout failed at provider: payout ${payoutId} status=${st}`);
+    }
+  }
 }
 
 // Re-export the PoolClient type so the settlement service can type-narrow

@@ -325,13 +325,31 @@ export async function executeSettlement(settlementId: string): Promise<'paid' | 
     try {
       const { dispatchSettlementPayout } = await import('./dispatch');
       await dispatchSettlementPayout(settlementId);
+
+      // Verify the payout actually reached a non-failed state
+      const { rows: payoutCheck } = await query<{ status: string }>(
+        `SELECT p.status FROM settlements s
+           JOIN payouts p ON p.id = s.payout_id
+          WHERE s.id = $1`,
+        [settlementId],
+      );
+      const payoutStatus = payoutCheck[0]?.status;
+      if (payoutStatus === 'failed' || payoutStatus === 'cancelled') {
+        logger.error({ settlementId, payoutStatus },
+          'settlement payout created but failed at provider — rolling back to failed');
+        await query(
+          `UPDATE settlements SET status = 'failed', updated_at = now() WHERE id = $1`,
+          [settlementId],
+        );
+        result = 'failed';
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       const errStack = err instanceof Error ? err.stack : undefined;
       logger.error({ err, settlementId, errMsg, errStack },
         'settlement payout dispatch failed — marking settlement as failed');
       await query(
-        `UPDATE settlements SET status = 'failed', updated_at = now() WHERE id = $1`,
+        `UPDATE settlements SET status = 'failed', payout_id = NULL, destination_summary = NULL, updated_at = now() WHERE id = $1`,
         [settlementId],
       );
       result = 'failed';
