@@ -196,6 +196,20 @@ export class PaystackCollectionConnector implements CollectionConnector {
         next_action: null,
       };
     } catch (err) {
+      const axiosErr = err as import('axios').AxiosError;
+      const status = axiosErr.response?.status;
+
+      if (status && status >= 400 && status < 500) {
+        return {
+          normalized_status: 'failed',
+          provider_reference: providerRef,
+          raw_payload: { error: (err as Error).message, status },
+          error_code: `paystack_${status}`,
+          error_message: (axiosErr.response?.data as Record<string, unknown>)?.message as string ?? 'provider rejected',
+          next_action: null,
+        };
+      }
+
       return {
         normalized_status: 'pending',
         provider_reference: providerRef,
