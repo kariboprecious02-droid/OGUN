@@ -103,7 +103,7 @@ export class PaystackPayoutConnector implements PayoutConnector {
         raw_payload: { ...resp, transfer_code: transferCode } as Record<string, unknown>,
         error_code: resp.status ? null : 'paystack_error',
         error_message: resp.status ? null : resp.message ?? 'Transfer rejected',
-        next_action: resp.status ? 'wait' : 'escalate',
+        next_action: resp.status ? 'poll' : 'escalate',
       };
     } catch (err) {
       logger.error({ err }, 'paystack initiatePayout failed');
@@ -144,25 +144,38 @@ export class PaystackPayoutConnector implements PayoutConnector {
 
   async getPayoutStatus(providerRef: string): Promise<ConnectorResult<NormalizedPayoutStatus>> {
     try {
-      const { data } = await this.http.get(`/transfer/${providerRef}`);
-      const resp = data as { data?: { status?: string } };
+      const { data } = await this.http.get(`/transfer/verify/${providerRef}`);
+      const resp = data as { data?: { status?: string; reference?: string } };
       return {
         normalized_status: this.mapTransferStatus(resp.data?.status ?? 'pending'),
-        provider_reference: providerRef,
+        provider_reference: resp.data?.reference ?? providerRef,
         raw_payload: resp as Record<string, unknown>,
         error_code: null,
         error_message: null,
         next_action: null,
       };
-    } catch (err) {
-      return {
-        normalized_status: 'processing',
-        provider_reference: providerRef,
-        raw_payload: { error: (err as Error).message },
-        error_code: null,
-        error_message: null,
-        next_action: 'poll',
-      };
+    } catch {
+      try {
+        const { data } = await this.http.get(`/transfer/${providerRef}`);
+        const resp = data as { data?: { status?: string; reference?: string } };
+        return {
+          normalized_status: this.mapTransferStatus(resp.data?.status ?? 'pending'),
+          provider_reference: resp.data?.reference ?? providerRef,
+          raw_payload: resp as Record<string, unknown>,
+          error_code: null,
+          error_message: null,
+          next_action: null,
+        };
+      } catch (err) {
+        return {
+          normalized_status: 'processing',
+          provider_reference: providerRef,
+          raw_payload: { error: (err as Error).message },
+          error_code: null,
+          error_message: null,
+          next_action: 'poll',
+        };
+      }
     }
   }
 

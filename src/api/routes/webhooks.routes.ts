@@ -209,11 +209,24 @@ router.post('/webhooks/paystack', raw({ type: 'application/json' }), async (req,
     if (event.startsWith('transfer.')) {
       const connector = getPayoutConnector('paystack');
       if (!connector.validateWebhookSignature(payload, req.headers as Record<string, string>)) {
+        logger.error({ event }, 'paystack transfer webhook: invalid signature — rejecting');
         return res.status(401).send('invalid signature');
       }
       const parsed = connector.parseWebhook(payload, req.headers as Record<string, string>);
+
+      query(
+        `INSERT INTO paystack_webhook_events
+           (id, collection_id, event_type, raw_payload, signature_valid, http_status_returned, received_at)
+         VALUES ($1,$2,$3,$4,$5,200,now())`,
+        [newId('event'), null, event, JSON.stringify(body), true],
+      ).catch((err) => logger.error({ err }, 'failed to persist paystack transfer webhook'));
+
       const payout = await findPayoutByProviderRef(parsed.provider_reference);
-      if (!payout) return res.status(200).send('ok');
+      if (!payout) {
+        logger.warn({ event, providerRef: parsed.provider_reference },
+          'unattributed paystack transfer webhook — persisted for forensics');
+        return res.status(200).send('ok');
+      }
       const normalized =
         parsed.normalized_status === 'succeeded'
           ? 'succeeded'

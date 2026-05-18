@@ -11,7 +11,7 @@ import { query } from '@/infra/db/pool';
 import { newId } from '@/infra/ids';
 import { config } from '@/infra/config';
 import { logger } from '@/infra/logger';
-import { getCollectionConnector } from '@/modules/connectors/registry';
+import { getCollectionConnector, getPayoutConnector } from '@/modules/connectors/registry';
 import { findCollection } from '@/modules/collection/collection.repository';
 import {
   resolveCollection,
@@ -19,6 +19,7 @@ import {
 } from '@/modules/collection/collection.service';
 import { isTerminal } from '@/modules/collection/collection.types';
 import { recordCollectionEvent } from '@/modules/observability/collectionEvents';
+import { query as dbQuery } from '@/infra/db/pool';
 
 export type PollingJobRow = {
   id: string;
@@ -195,5 +196,48 @@ async function processJob(job: PollingJobRow, now: Date): Promise<void> {
       },
       message: `poll #${job.poll_count + 1}: still ${result.normalized_status}`,
     });
+  }
+
+  if (job.reference_type === 'payout') {
+    const { rows: payoutRows } = await dbQuery<{
+      id: string;
+      status: string;
+      provider: string;
+      provider_reference: string | null;
+      provider_transfer_code: string | null;
+    }>(`SELECT id, status, provider, provider_reference, provider_transfer_code FROM payouts WHERE id = $1`, [job.reference_id]);
+    const payout = payoutRows[0];
+    if (!payout) {
+      await stopPollingJob(job.reference_type, job.reference_id, 'missing_ref');
+      return;
+    }
+    if (['succeeded', 'failed', 'reversed', 'cancelled'].includes(payout.status)) {
+      await stopPollingJob(job.reference_type, job.reference_id, 'terminal_pre_check');
+      return;
+    }
+
+    const connector = getPayoutConnector(payout.provider);
+    const ref = payout.provider_transfer_code ?? payout.provider_reference ?? job.provider_reference ?? '';
+    const result = await connector.getPayoutStatus(ref);
+
+    if (result.normalized_status === 'succeeded' || result.normalized_status === 'failed' || result.normalized_status === 'reversed') {
+      const { resolvePayout } = await import('@/modules/payout/payout.service');
+      await resolvePayout(payout.id, {
+        source: 'poller',
+        normalizedStatus: result.normalized_status,
+        providerReference: result.provider_reference,
+        failureReason: result.error_code ?? undefined,
+      });
+      await stopPollingJob(job.reference_type, job.reference_id, result.normalized_status);
+      return;
+    }
+
+    const next = new Date(now.getTime() + config.polling.intervalSeconds * 1000);
+    await query(
+      `UPDATE polling_jobs SET poll_count = poll_count + 1, next_poll_at = $2 WHERE id = $1 AND status = 'active'`,
+      [job.id, next],
+    );
+    logger.info({ payout_id: payout.id, poll_count: job.poll_count + 1, status: result.normalized_status },
+      'payout poll tick: still processing');
   }
 }

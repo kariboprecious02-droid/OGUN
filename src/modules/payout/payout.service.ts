@@ -269,7 +269,9 @@ async function dispatchPayout(payoutId: string, beneficiary: BeneficiaryRow): Pr
       provider_reference: result.provider_reference,
       provider_transfer_code:
         (result.raw_payload as { transfer_code?: string }).transfer_code ?? null,
-      provider_status: (result.raw_payload as { status?: string }).status ?? null,
+      provider_status: (result.raw_payload as { data?: { status?: string } }).data?.status
+        ?? (result.raw_payload as { status?: string }).status
+        ?? null,
       failure_reason: result.error_code ?? null,
     });
   });
