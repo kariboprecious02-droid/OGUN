@@ -352,6 +352,7 @@ export async function resolvePayout(
       }
       await updatePayout(client, row.id, {
         status: PayoutStatus.Reversed,
+        provider_status: 'reversed',
         reversal_indicator: true,
         reversal_reason: input.reversalReason ?? 'provider_reversed',
         final_resolved_at: new Date(),
@@ -395,6 +396,7 @@ export async function resolvePayout(
       }
       await updatePayout(client, row.id, {
         status: PayoutStatus.Succeeded,
+        provider_status: 'success',
         provider_reference: input.providerReference ?? row.provider_reference,
         final_resolved_at: new Date(),
       });
@@ -418,6 +420,7 @@ export async function resolvePayout(
     });
     await updatePayout(client, row.id, {
       status: PayoutStatus.Failed,
+      provider_status: 'failed',
       failure_reason: input.failureReason ?? 'unknown',
       final_resolved_at: new Date(),
     });

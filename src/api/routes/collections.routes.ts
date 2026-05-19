@@ -146,6 +146,7 @@ router.get('/collections/:id', authenticate(), async (req, res, next) => {
           reference: c.merchant_reference,
           sub_merchant_id: c.sub_merchant_id,
           settlement_eligible: c.settlement_eligible,
+          settlement_batch_id: c.settlement_batch_id ?? null,
           wallet_credited: c.wallet_credited,
           refund_status: c.refund_status,
           refunded_amount: c.refunded_amount ?? null,

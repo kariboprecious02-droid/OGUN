@@ -15,6 +15,8 @@ export async function tickSettlementScheduler(): Promise<void> {
     merchant_id: string;
     settlement_frequency: string;
   }>(
+    // Binding cadence source: merchant_settings.settlement_frequency (not sub_merchants.settlement_preference).
+    // If both exist, merchant_settings wins. sub_merchants.settlement_preference is display-only.
     `SELECT DISTINCT c.sub_merchant_id, c.merchant_id, COALESCE(ms.settlement_frequency, 'weekly') as settlement_frequency
      FROM collections c
      LEFT JOIN merchant_settings ms ON ms.merchant_id = c.merchant_id AND ms.sub_merchant_id IS NULL
