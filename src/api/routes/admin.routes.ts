@@ -623,9 +623,10 @@ router.get('/admin/payouts', async (req, res, next) => {
     const offset = (page - 1) * limit;
     const [{ rows: items }, { rows: totals }] = await Promise.all([
       query(
-        `SELECT id, merchant_id, sub_merchant_id, amount, fee_amount, total_debit,
+        `SELECT id, merchant_id, sub_merchant_id, beneficiary_id, amount, fee_amount, total_debit,
                 recipient_amount, fee_model, currency, method, provider, status,
-                provider_reference, provider_status, failure_reason, reversal_indicator,
+                provider_reference, provider_status, provider_transfer_code,
+                failure_reason, reversal_indicator,
                 created_at, final_resolved_at
            FROM payouts ${whereSql}
           ORDER BY created_at DESC
@@ -647,6 +648,60 @@ router.get('/admin/payouts', async (req, res, next) => {
     res.json(
       paginated(normalized, page, limit, Number(totals[0]?.count ?? 0), req.ogunContext.requestId),
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/admin/payouts/:id', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const { rows } = await query(
+      `SELECT p.*, b.name AS beneficiary_name, b.beneficiary_type, b.mobile_number,
+              b.bank_code, b.account_number AS beneficiary_account_number,
+              b.provider_recipient_code
+         FROM payouts p
+         LEFT JOIN beneficiaries b ON b.id = p.beneficiary_id
+        WHERE p.id = $1`,
+      [req.params.id],
+    );
+    if (rows.length === 0) throw OgunError.notFound('Payout', req.params.id);
+    const p = rows[0] as Record<string, unknown>;
+    res.json(success({
+      ...p,
+      amount: Number(p.amount),
+      fee_amount: Number(p.fee_amount),
+      total_debit: Number(p.total_debit),
+      recipient_amount: Number(p.recipient_amount),
+      wallet_reserved_amount: p.wallet_reserved_amount != null ? Number(p.wallet_reserved_amount) : null,
+    }, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/admin/beneficiaries', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const merchantId = req.query.merchant_id as string | undefined;
+    const where = merchantId ? `WHERE merchant_id = $1` : '';
+    const vals = merchantId ? [merchantId] : [];
+    const { rows } = await query(
+      `SELECT * FROM beneficiaries ${where} ORDER BY created_at DESC LIMIT 100`,
+      vals,
+    );
+    res.json(success(rows, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/admin/beneficiaries/:id', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const { rows } = await query(`SELECT * FROM beneficiaries WHERE id = $1`, [req.params.id]);
+    if (rows.length === 0) throw OgunError.notFound('Beneficiary', req.params.id);
+    res.json(success(rows[0], { request_id: req.ogunContext.requestId }));
   } catch (err) {
     next(err);
   }

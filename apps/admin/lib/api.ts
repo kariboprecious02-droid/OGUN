@@ -186,6 +186,7 @@ export type PayoutSummary = {
   id: string;
   merchant_id: string;
   sub_merchant_id: string;
+  beneficiary_id: string | null;
   amount: number;
   fee_amount: number;
   total_debit: number;
@@ -197,6 +198,7 @@ export type PayoutSummary = {
   status: string;
   provider_reference: string | null;
   provider_status: string | null;
+  provider_transfer_code: string | null;
   failure_reason: string | null;
   reversal_indicator: boolean;
   created_at: string;
@@ -445,6 +447,50 @@ export async function getSettlementDetail(id: string): Promise<SettlementDetail>
 
 export async function getCollectionLogs(id: string): Promise<CollectionLogs> {
   return request<CollectionLogs>(`/admin/collections/${id}/logs`);
+}
+
+export type PayoutDetail = PayoutSummary & {
+  beneficiary_name: string | null;
+  beneficiary_type: string | null;
+  mobile_number: string | null;
+  bank_code: string | null;
+  beneficiary_account_number: string | null;
+  provider_recipient_code: string | null;
+  wallet_reserved_amount: number | null;
+  wallet_reserved_at: string | null;
+  reversal_reason: string | null;
+  external_reference: string | null;
+  internal_method: string | null;
+  metadata: Record<string, unknown> | null;
+  idempotency_key: string | null;
+  updated_at: string;
+};
+
+export async function getPayoutDetail(id: string): Promise<PayoutDetail> {
+  return request<PayoutDetail>(`/admin/payouts/${id}`);
+}
+
+export type BeneficiarySummary = {
+  id: string;
+  merchant_id: string;
+  sub_merchant_id: string;
+  name: string;
+  beneficiary_type: 'mobile_money' | 'bank_account';
+  provider: string;
+  provider_recipient_code: string | null;
+  mobile_number: string | null;
+  bank_code: string | null;
+  account_number: string | null;
+  currency: string;
+  created_at: string;
+};
+
+export async function listBeneficiaries(merchantId: string): Promise<BeneficiarySummary[]> {
+  return request<BeneficiarySummary[]>(`/admin/beneficiaries?merchant_id=${merchantId}`);
+}
+
+export async function getBeneficiaryDetail(id: string): Promise<BeneficiarySummary> {
+  return request<BeneficiarySummary>(`/admin/beneficiaries/${id}`);
 }
 
 export async function listPayouts(params: {

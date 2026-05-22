@@ -3,13 +3,14 @@ import { Nav } from '@/components/Nav';
 import { Badge } from '@/components/Badge';
 import type { MerchantDetail } from '@/lib/api';
 
-export type PanelTabKey = 'settings' | 'collections' | 'payouts' | 'settlements';
+export type PanelTabKey = 'settings' | 'collections' | 'payouts' | 'settlements' | 'beneficiaries';
 
 const TABS: ReadonlyArray<{ key: PanelTabKey; label: string }> = [
   { key: 'settings', label: 'Settings' },
   { key: 'collections', label: 'Collections' },
   { key: 'payouts', label: 'Payouts' },
   { key: 'settlements', label: 'Settlements' },
+  { key: 'beneficiaries', label: 'Beneficiaries' },
 ];
 
 /**
