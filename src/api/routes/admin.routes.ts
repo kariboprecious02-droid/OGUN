@@ -30,6 +30,8 @@ import { newId } from '@/infra/ids';
 import multer from 'multer';
 import { config } from '@/infra/config';
 import { query } from '@/infra/db/pool';
+import { syncPayout } from '@/modules/payout/payout.service';
+import { enforceRateLimit } from '@/infra/rateLimit';
 
 const router = Router();
 
@@ -584,19 +586,11 @@ router.get('/admin/collections/:id/logs', async (req, res, next) => {
 const listPayoutsQuery = pagination.extend({
   merchant_id: z.string().startsWith('mrc_').optional(),
   sub_merchant_id: z.string().startsWith('smrc_').optional(),
-  status: z
-    .enum([
-      'created',
-      'queued',
-      'processing',
-      'pending_approval',
-      'pending_confirmation',
-      'succeeded',
-      'failed',
-      'reversed',
-      'cancelled',
-    ])
-    .optional(),
+  status: z.string().optional(),
+  method: z.string().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  beneficiary_query: z.string().optional(),
 });
 
 router.get('/admin/payouts', async (req, res, next) => {
@@ -608,33 +602,59 @@ router.get('/admin/payouts', async (req, res, next) => {
     const vals: unknown[] = [];
     let i = 1;
     if (parsed.merchant_id) {
-      where.push(`merchant_id = $${i++}`);
+      where.push(`p.merchant_id = $${i++}`);
       vals.push(parsed.merchant_id);
     }
     if (parsed.sub_merchant_id) {
-      where.push(`sub_merchant_id = $${i++}`);
+      where.push(`p.sub_merchant_id = $${i++}`);
       vals.push(parsed.sub_merchant_id);
     }
     if (parsed.status) {
-      where.push(`status = $${i++}`);
-      vals.push(parsed.status);
+      const statuses = parsed.status.split(',').filter(Boolean);
+      if (statuses.length === 1) {
+        where.push(`p.status = $${i++}`);
+        vals.push(statuses[0]);
+      } else if (statuses.length > 1) {
+        const placeholders = statuses.map(() => `$${i++}`).join(',');
+        where.push(`p.status IN (${placeholders})`);
+        vals.push(...statuses);
+      }
+    }
+    if (parsed.method) {
+      where.push(`p.method = $${i++}`);
+      vals.push(parsed.method);
+    }
+    if (parsed.from) {
+      where.push(`p.created_at >= $${i++}`);
+      vals.push(parsed.from);
+    }
+    if (parsed.to) {
+      where.push(`p.created_at <= $${i++}`);
+      vals.push(parsed.to);
+    }
+    if (parsed.beneficiary_query) {
+      where.push(`b.name ILIKE '%' || $${i++} || '%'`);
+      vals.push(parsed.beneficiary_query);
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const offset = (page - 1) * limit;
     const [{ rows: items }, { rows: totals }] = await Promise.all([
       query(
-        `SELECT id, merchant_id, sub_merchant_id, beneficiary_id, amount, fee_amount, total_debit,
-                recipient_amount, fee_model, currency, method, provider, status,
-                provider_reference, provider_status, provider_transfer_code,
-                failure_reason, reversal_indicator,
-                created_at, final_resolved_at
-           FROM payouts ${whereSql}
-          ORDER BY created_at DESC
+        `SELECT p.id, p.merchant_id, p.sub_merchant_id, p.beneficiary_id, p.amount, p.fee_amount, p.total_debit,
+                p.recipient_amount, p.fee_model, p.currency, p.method, p.provider, p.status,
+                p.provider_reference, p.provider_status, p.provider_transfer_code,
+                p.failure_reason, p.reversal_indicator, p.reference,
+                p.created_at, p.final_resolved_at,
+                b.name AS beneficiary_name
+           FROM payouts p
+           LEFT JOIN beneficiaries b ON b.id = p.beneficiary_id
+           ${whereSql}
+          ORDER BY p.created_at DESC
           LIMIT $${i++} OFFSET $${i++}`,
         [...vals, limit, offset],
       ),
       query<{ count: string }>(
-        `SELECT count(*)::text AS count FROM payouts ${whereSql}`,
+        `SELECT count(*)::text AS count FROM payouts p LEFT JOIN beneficiaries b ON b.id = p.beneficiary_id ${whereSql}`,
         vals,
       ),
     ]);
@@ -674,6 +694,114 @@ router.get('/admin/payouts/:id', async (req, res, next) => {
       total_debit: Number(p.total_debit),
       recipient_amount: Number(p.recipient_amount),
       wallet_reserved_amount: p.wallet_reserved_amount != null ? Number(p.wallet_reserved_amount) : null,
+    }, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/admin/payouts/:id/logs', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const payoutId = req.params.id;
+
+    // Get the payout first for provider_reference and provider_transfer_code
+    const { rows: payoutRows } = await query(
+      `SELECT provider_reference, provider_transfer_code FROM payouts WHERE id = $1`,
+      [payoutId],
+    );
+    if (payoutRows.length === 0) throw OgunError.notFound('Payout', payoutId);
+    const payout = payoutRows[0] as { provider_reference: string | null; provider_transfer_code: string | null };
+
+    // 1. Lifecycle events — from payout_events table (doesn't exist yet, graceful fallback)
+    let lifecycle: unknown[] = [];
+    try {
+      const { rows } = await query(
+        `SELECT * FROM payout_events WHERE payout_id = $1 ORDER BY occurred_at ASC`,
+        [payoutId],
+      );
+      lifecycle = rows;
+    } catch {
+      // Table doesn't exist yet (Task 3 item #5)
+    }
+
+    // 2. Inbound Paystack webhooks — transfer.* events matching this payout
+    const webhookWhere: string[] = [`event_type LIKE 'transfer.%'`];
+    const webhookVals: unknown[] = [];
+    let wi = 1;
+    const orClauses: string[] = [];
+    if (payout.provider_reference) {
+      orClauses.push(`raw_payload->'data'->>'reference' = $${wi}`);
+      // Also try matching on the reference field directly
+      orClauses.push(`raw_payload::text ILIKE '%' || $${wi} || '%'`);
+      webhookVals.push(payout.provider_reference);
+      wi++;
+    }
+    if (payout.provider_transfer_code) {
+      orClauses.push(`raw_payload::text ILIKE '%' || $${wi} || '%'`);
+      webhookVals.push(payout.provider_transfer_code);
+      wi++;
+    }
+
+    let paystack_inbound: unknown[] = [];
+    if (orClauses.length > 0) {
+      webhookWhere.push(`(${orClauses.join(' OR ')})`);
+      const { rows } = await query(
+        `SELECT id, event_type, raw_payload, signature_valid, http_status_returned, received_at
+           FROM paystack_webhook_events
+          WHERE ${webhookWhere.join(' AND ')}
+          ORDER BY received_at ASC
+          LIMIT 50`,
+        webhookVals,
+      );
+      paystack_inbound = rows;
+    }
+
+    // 3. Outbound merchant webhook deliveries
+    const { rows: deliveries } = await query(
+      `SELECT id, event_type, payload, delivery_status, http_status, response_body,
+              created_at, delivered_at, retry_count, url
+         FROM webhook_deliveries
+        WHERE reference_type = 'payout' AND reference_id = $1
+        ORDER BY created_at ASC
+        LIMIT 50`,
+      [payoutId],
+    );
+
+    res.json(success({
+      lifecycle,
+      paystack_inbound,
+      webhook_deliveries: deliveries,
+    }, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/admin/payouts/:id/sync', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const { rows } = await query(`SELECT id, status FROM payouts WHERE id = $1`, [req.params.id]);
+    if (rows.length === 0) throw OgunError.notFound('Payout', req.params.id);
+    const existing = rows[0] as { id: string; status: string };
+
+    const terminal = ['succeeded', 'failed', 'reversed', 'cancelled'];
+    if (terminal.includes(existing.status)) {
+      res.json(success({
+        payout_id: existing.id,
+        status: existing.status,
+        message: 'Payout is already terminal',
+      }, { request_id: req.ogunContext.requestId }));
+      return;
+    }
+
+    await enforceRateLimit(`payout_sync:${existing.id}`, 60, 1);
+    const p = await syncPayout(existing.id);
+    res.json(success({
+      payout_id: p.id,
+      status: p.status,
+      provider_status: p.provider_status,
+      last_polled_at: new Date().toISOString(),
     }, { request_id: req.ogunContext.requestId }));
   } catch (err) {
     next(err);

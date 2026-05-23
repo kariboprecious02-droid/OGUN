@@ -1,64 +1,121 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
-import { getPayoutDetail, getMerchantDetail, OgunApiError, centsToKes } from '@/lib/api';
+import { getPayoutDetail, getPayoutLogs, getMerchantDetail, OgunApiError, centsToKes } from '@/lib/api';
+import type { PayoutDetail, PayoutLogs } from '@/lib/api';
 import { Nav } from '@/components/Nav';
 import { Badge, formatIsoDate } from '@/components/Badge';
+import { SyncButton } from './_components/SyncButton';
 
-const PAYOUT_STEPS = [
-  { key: 'created', label: 'Created' },
-  { key: 'queued', label: 'Queued' },
-  { key: 'processing', label: 'Processing' },
-  { key: 'succeeded', label: 'Succeeded' },
+/* ── Stepper: 9-state machine ─────────────────────────────────────── */
+
+const BASELINE_STEPS = [
+  { key: 'created',    label: 'Created' },
+  { key: 'queued',     label: 'Queued' },
+  { key: 'processing', label: 'Provider processing' },
+  { key: 'terminal',   label: 'Terminal' },
 ] as const;
 
-type StepState = 'done' | 'active' | 'failed' | 'pending';
+const BRANCH_NODES: Record<string, { key: string; label: string }> = {
+  pending_approval:     { key: 'pending_approval',     label: 'Awaiting approval' },
+  pending_confirmation: { key: 'pending_confirmation', label: 'Awaiting confirmation' },
+};
 
-function deriveStepStates(p: Awaited<ReturnType<typeof getPayoutDetail>>): {
-  states: StepState[];
-  stopStep: number;
-  stopReason: string;
+const REVERSAL_NODE = { key: 'reversed', label: 'Reversed' };
+
+type StepState = 'done' | 'active' | 'failed' | 'cancelled' | 'reversed' | 'pending';
+
+type StepNode = { key: string; label: string; state: StepState };
+
+const PAST_PROCESSING = [
+  'pending_approval', 'pending_confirmation',
+  'succeeded', 'failed', 'cancelled', 'reversed',
+];
+
+function buildStepperNodes(p: PayoutDetail): {
+  nodes: StepNode[];
+  callout: { step: number; label: string; reason: string } | null;
 } {
-  const states: StepState[] = new Array(4).fill('pending');
-  let stopStep = -1;
-  let stopReason = '';
+  const nodes: StepNode[] = [];
 
-  // Step 0: Created — always done if the record exists
-  if (p.created_at) states[0] = 'done';
+  // Step 0: Created
+  nodes.push({ key: 'created', label: 'Created', state: 'done' });
 
   // Step 1: Queued
-  if (p.status === 'queued' || p.status === 'processing' || p.status === 'succeeded' || p.status === 'failed' || p.status === 'reversed') {
-    states[1] = 'done';
+  if (p.status === 'created') {
+    nodes.push({ key: 'queued', label: 'Queued', state: 'active' });
+  } else {
+    nodes.push({ key: 'queued', label: 'Queued', state: 'done' });
   }
 
   // Step 2: Processing
-  if (p.status === 'processing' || p.status === 'succeeded' || p.status === 'failed' || p.status === 'reversed') {
-    states[2] = 'done';
-  } else if (states[1] === 'done' && p.status === 'queued') {
-    states[2] = 'active';
-    if (stopStep < 0) { stopStep = 2; stopReason = 'in progress'; }
+  if (['created', 'queued'].includes(p.status)) {
+    nodes.push({ key: 'processing', label: 'Provider processing', state: 'pending' });
+  } else if (p.status === 'processing') {
+    nodes.push({ key: 'processing', label: 'Provider processing', state: 'active' });
+  } else {
+    nodes.push({ key: 'processing', label: 'Provider processing', state: 'done' });
   }
 
-  // Step 3: Succeeded
-  if (p.status === 'succeeded') {
-    states[3] = 'done';
+  // Branch node (conditional — only render when status hits it)
+  if (p.status === 'pending_approval' || p.status === 'pending_confirmation') {
+    const branch = BRANCH_NODES[p.status];
+    nodes.push({ key: branch.key, label: branch.label, state: 'active' });
+  }
+
+  // Terminal node
+  const terminalIndex = nodes.length;
+  if (p.status === 'succeeded' || p.status === 'reversed') {
+    nodes.push({ key: 'terminal', label: 'Succeeded', state: 'done' });
   } else if (p.status === 'failed') {
-    states[3] = 'failed';
-    if (stopStep < 0) { stopStep = 3; stopReason = p.failure_reason ?? 'failed'; }
-  } else if (p.status === 'reversed') {
-    states[3] = 'failed';
-    if (stopStep < 0) { stopStep = 3; stopReason = p.reversal_reason ?? 'reversed'; }
+    nodes.push({ key: 'terminal', label: 'Failed', state: 'failed' });
+  } else if (p.status === 'cancelled') {
+    nodes.push({ key: 'terminal', label: 'Cancelled', state: 'cancelled' });
+  } else {
+    nodes.push({ key: 'terminal', label: 'Terminal', state: 'pending' });
   }
 
-  // If no explicit stop, find the first pending step
-  if (stopStep < 0) {
-    for (let i = 0; i < 4; i++) {
-      if (states[i] === 'pending') { stopStep = i; stopReason = 'in progress'; break; }
-    }
+  // Reversal append node
+  if (p.status === 'reversed' || p.reversal_indicator) {
+    nodes.push({ key: 'reversed', label: 'Reversed', state: 'reversed' });
   }
 
-  return { states, stopStep, stopReason };
+  // Build callout
+  let callout: { step: number; label: string; reason: string } | null = null;
+  if (p.status === 'failed') {
+    callout = { step: terminalIndex, label: 'Failed', reason: p.failure_reason ?? 'failed' };
+  } else if (p.status === 'cancelled') {
+    callout = { step: terminalIndex, label: 'Cancelled', reason: 'Payout was cancelled before reaching the provider' };
+  } else if (p.status === 'reversed' || p.reversal_indicator) {
+    callout = { step: nodes.length - 1, label: 'Reversed', reason: p.reversal_reason ?? 'reversed by provider' };
+  }
+
+  return { nodes, callout };
 }
+
+function dotColor(state: StepState): string {
+  switch (state) {
+    case 'done':      return 'bg-ogun-success';
+    case 'active':    return 'bg-ogun-accent';
+    case 'failed':    return 'bg-ogun-danger';
+    case 'cancelled': return 'bg-ogun-muted border border-dashed border-ogun-border';
+    case 'reversed':  return 'bg-ogun-warn';
+    case 'pending':   return 'bg-ogun-border';
+  }
+}
+
+function barColor(prev: StepState, curr: StepState): string {
+  if (prev === 'done' && curr === 'done') return 'bg-ogun-success';
+  if (prev === 'done' && curr === 'failed') return 'bg-ogun-danger';
+  if (prev === 'done' && curr === 'reversed') return 'bg-ogun-warn';
+  if (prev === 'done' && curr === 'cancelled') return 'bg-ogun-muted';
+  if (prev === 'done' && curr === 'active') return 'bg-ogun-accent';
+  return 'bg-ogun-border';
+}
+
+const TERMINAL_STATUSES = ['succeeded', 'failed', 'reversed', 'cancelled'];
+
+/* ── Page ─────────────────────────────────────────────────────────── */
 
 export default async function PayoutDetailPage({
   params,
@@ -69,7 +126,7 @@ export default async function PayoutDetailPage({
   const { id, payoutId } = await params;
 
   let detail;
-  let p;
+  let p: PayoutDetail;
   try {
     const [d, payout] = await Promise.all([
       getMerchantDetail(id),
@@ -82,7 +139,13 @@ export default async function PayoutDetailPage({
     throw err;
   }
 
-  const { states, stopStep, stopReason } = deriveStepStates(p);
+  const logs = await getPayoutLogs(payoutId).catch((): PayoutLogs => ({
+    lifecycle: [],
+    paystack_inbound: [],
+    webhook_deliveries: [],
+  }));
+
+  const { nodes, callout } = buildStepperNodes(p);
   const recipientAmount = centsToKes(p.recipient_amount);
   const totalDebit = centsToKes(p.total_debit);
   const feeAmount = centsToKes(p.fee_amount);
@@ -140,44 +203,39 @@ export default async function PayoutDetailPage({
             Payout journey
           </h2>
           <div className="flex items-center gap-0 overflow-x-auto pb-2">
-            {PAYOUT_STEPS.map((step, i) => {
-              const state = states[i];
-              const dotColor =
-                state === 'done' ? 'bg-ogun-success' :
-                state === 'failed' ? 'bg-ogun-danger' :
-                state === 'active' ? 'bg-ogun-accent' :
-                'bg-ogun-border';
-              const barColor = i > 0 ? (
-                states[i - 1] === 'done' && state === 'done' ? 'bg-ogun-success' :
-                states[i - 1] === 'done' && state === 'failed' ? 'bg-ogun-danger' :
-                'bg-ogun-border'
-              ) : '';
-              return (
-                <div key={step.key} className="flex items-center">
-                  {i > 0 && <div className={`w-8 h-0.5 ${barColor}`} />}
-                  <div className="flex flex-col items-center min-w-[70px]">
-                    <div className={`w-3 h-3 rounded-full ${dotColor}`} />
-                    <div className="text-[10px] text-ogun-muted mt-1 text-center whitespace-nowrap">
-                      {step.label}
-                    </div>
-                    <div className="text-[9px] text-ogun-muted">
-                      {state}
-                    </div>
+            {nodes.map((node, i) => (
+              <div key={node.key} className="flex items-center">
+                {i > 0 && <div className={`w-8 h-0.5 ${barColor(nodes[i - 1].state, node.state)}`} />}
+                <div className="flex flex-col items-center min-w-[70px]">
+                  <div className={`w-3 h-3 rounded-full ${dotColor(node.state)}`} />
+                  <div className="text-[10px] text-ogun-muted mt-1 text-center whitespace-nowrap">
+                    {node.label}
+                  </div>
+                  <div className="text-[9px] text-ogun-muted">
+                    {node.state}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-          {stopStep >= 0 && stopReason !== 'in progress' && (
-            <div className="mt-3 p-3 rounded-md bg-ogun-bg border border-ogun-border text-sm">
-              <span className="text-ogun-warn font-medium">
-                Stopped at step {stopStep + 1}: {PAYOUT_STEPS[stopStep].label}
-              </span>
-              <div className="text-xs text-ogun-muted mt-1">
-                {stopReason}
-                {p.failure_reason && <> &middot; {p.failure_reason}</>}
-                {p.reversal_reason && <> &middot; {p.reversal_reason}</>}
               </div>
+            ))}
+          </div>
+          {callout && (
+            <div className={`mt-3 p-3 rounded-md border text-sm ${
+              callout.label === 'Cancelled'
+                ? 'bg-ogun-bg border-ogun-border'
+                : callout.label === 'Reversed'
+                  ? 'bg-ogun-bg border-ogun-warn'
+                  : 'bg-ogun-bg border-ogun-danger'
+            }`}>
+              <span className={`font-medium ${
+                callout.label === 'Cancelled'
+                  ? 'text-ogun-muted'
+                  : callout.label === 'Reversed'
+                    ? 'text-ogun-warn'
+                    : 'text-ogun-danger'
+              }`}>
+                {callout.label} at step {callout.step + 1}
+              </span>
+              <div className="text-xs text-ogun-muted mt-1">{callout.reason}</div>
             </div>
           )}
         </section>
@@ -269,6 +327,130 @@ export default async function PayoutDetailPage({
             </dl>
           </section>
         )}
+
+        {/* Integration Logs */}
+        <section className="panel-padded mb-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+            Integration logs
+          </h2>
+
+          {logs.lifecycle.length === 0 && logs.paystack_inbound.length === 0 && logs.webhook_deliveries.length === 0 ? (
+            <p className="text-sm text-ogun-muted">
+              No integration logs captured for this payout yet.
+            </p>
+          ) : (
+            <>
+              {/* (a) Lifecycle events */}
+              <div className="text-xs text-ogun-muted mb-2">
+                Lifecycle events ({logs.lifecycle.length})
+              </div>
+              {logs.lifecycle.length === 0 ? (
+                <p className="text-xs text-ogun-muted mb-4 p-2 bg-ogun-bg rounded-md border border-ogun-border">
+                  Lifecycle events not captured for this payout (payout predates the
+                  payout_events observability table — Task 3 item #5).
+                </p>
+              ) : (
+                <div className="overflow-x-auto mb-4 space-y-0">
+                  {logs.lifecycle.map((e) => (
+                    <details key={e.id} className="border-t border-ogun-border group">
+                      <summary className="flex items-center gap-3 px-3 py-2 text-xs cursor-pointer hover:bg-ogun-bg/50 list-none">
+                        <span className="whitespace-nowrap text-ogun-muted w-[140px]">{formatIsoDate(e.occurred_at)}</span>
+                        <span className="mono font-medium w-[130px]">{e.event_type}</span>
+                        <span className="flex-1 text-ogun-muted truncate">{e.message ?? '—'}</span>
+                        <span className="text-ogun-accent-on-dark text-[10px]">&#9654;</span>
+                      </summary>
+                      <div className="px-3 py-2 bg-ogun-bg border-l-2 border-ogun-accent-on-dark ml-3">
+                        <pre className="text-xs mono overflow-x-auto whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto">
+                          {JSON.stringify(e.payload, null, 2)}
+                        </pre>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              )}
+
+              {/* (b) Inbound Paystack webhooks */}
+              <div className="text-xs text-ogun-muted mb-2">
+                Inbound Paystack webhooks ({logs.paystack_inbound.length})
+              </div>
+              {logs.paystack_inbound.length === 0 ? (
+                <p className="text-xs text-ogun-muted mb-4 p-2 bg-ogun-bg rounded-md border border-ogun-border">
+                  No inbound webhooks received from Paystack for this payout.
+                </p>
+              ) : (
+                <div className="overflow-x-auto mb-4 space-y-0">
+                  {logs.paystack_inbound.map((w) => (
+                    <details key={w.id} className="border-t border-ogun-border">
+                      <summary className="flex items-center gap-3 px-3 py-2 text-xs cursor-pointer hover:bg-ogun-bg/50 list-none">
+                        <span className="whitespace-nowrap text-ogun-muted w-[160px]">{formatIsoDate(w.received_at)}</span>
+                        <span className="mono font-medium w-[140px]">{w.event_type}</span>
+                        <span className="w-[80px]">{w.signature_valid ? '✓ valid' : '✗ invalid'}</span>
+                        <span className="w-[50px]">{w.http_status_returned}</span>
+                        <span className="flex-1 text-ogun-accent-on-dark text-[10px]">&#9654; View payload</span>
+                      </summary>
+                      <div className="px-3 py-2 bg-ogun-bg border-l-2 border-ogun-accent-on-dark ml-3">
+                        <pre className="text-xs mono overflow-x-auto whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto">
+                          {JSON.stringify(w.raw_payload, null, 2)}
+                        </pre>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              )}
+
+              {/* (c) Outbound merchant webhooks */}
+              {logs.webhook_deliveries.length > 0 && (
+                <>
+                  <div className="text-xs text-ogun-muted mb-2">
+                    Outbound merchant webhooks ({logs.webhook_deliveries.length})
+                  </div>
+                  <div className="overflow-x-auto mb-4 space-y-0">
+                    {logs.webhook_deliveries.map((d) => (
+                      <details key={d.id} className="border-t border-ogun-border">
+                        <summary className="flex items-center gap-3 px-3 py-2 text-xs cursor-pointer hover:bg-ogun-bg/50 list-none">
+                          <span className="whitespace-nowrap text-ogun-muted w-[160px]">{formatIsoDate(d.created_at)}</span>
+                          <span className="mono font-medium w-[140px]">{d.event_type}</span>
+                          <span className="mono text-ogun-muted w-[180px] truncate">{d.url}</span>
+                          <span className="w-[80px]"><Badge status={d.delivery_status} /></span>
+                          <span className="w-[40px]">{d.http_status ?? '—'}</span>
+                          <span className="w-[50px]">&times;{d.retry_count}</span>
+                          <span className="flex-1 text-ogun-accent-on-dark text-[10px]">&#9654; View payload</span>
+                        </summary>
+                        <div className="px-3 py-2 bg-ogun-bg border-l-2 border-ogun-accent-on-dark ml-3">
+                          <div className="text-[10px] text-ogun-muted uppercase mb-1">Event payload sent to merchant</div>
+                          <pre className="text-xs mono overflow-x-auto whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto">
+                            {JSON.stringify(d.payload, null, 2)}
+                          </pre>
+                          {d.response_body && (
+                            <>
+                              <div className="text-[10px] text-ogun-muted uppercase mt-2 mb-1">Merchant response</div>
+                              <pre className="text-xs mono overflow-x-auto whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto">
+                                {d.response_body}
+                              </pre>
+                            </>
+                          )}
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </section>
+
+        {/* Operational actions */}
+        <section className="panel-padded mb-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+            Operational actions
+          </h2>
+          <SyncButton payoutId={p.id} disabled={TERMINAL_STATUSES.includes(p.status)} />
+          {TERMINAL_STATUSES.includes(p.status) && (
+            <p className="text-xs text-ogun-muted mt-2">
+              Sync is disabled because this payout is already terminal ({p.status}).
+            </p>
+          )}
+        </section>
 
         {/* Raw fields */}
         <section className="panel-padded mb-6">

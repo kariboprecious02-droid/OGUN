@@ -201,6 +201,8 @@ export type PayoutSummary = {
   provider_transfer_code: string | null;
   failure_reason: string | null;
   reversal_indicator: boolean;
+  reference: string | null;
+  beneficiary_name: string | null;
   created_at: string;
   final_resolved_at: string | null;
 };
@@ -470,6 +472,53 @@ export async function getPayoutDetail(id: string): Promise<PayoutDetail> {
   return request<PayoutDetail>(`/admin/payouts/${id}`);
 }
 
+export type PayoutLogs = {
+  lifecycle: Array<{
+    id: string;
+    event_type: string;
+    payload: Record<string, unknown>;
+    message: string | null;
+    occurred_at: string;
+  }>;
+  paystack_inbound: Array<{
+    id: string;
+    event_type: string;
+    raw_payload: Record<string, unknown>;
+    signature_valid: boolean;
+    http_status_returned: number;
+    received_at: string;
+  }>;
+  webhook_deliveries: Array<{
+    id: string;
+    event_type: string;
+    payload: Record<string, unknown>;
+    delivery_status: string;
+    http_status: number | null;
+    response_body: string | null;
+    created_at: string;
+    delivered_at: string | null;
+    retry_count: number;
+    url: string;
+  }>;
+};
+
+export async function getPayoutLogs(id: string): Promise<PayoutLogs> {
+  return request<PayoutLogs>(`/admin/payouts/${id}/logs`);
+}
+
+export async function syncPayoutAdmin(id: string): Promise<{
+  payout_id: string;
+  status: string;
+  provider_status?: string;
+  last_polled_at?: string;
+  message?: string;
+}> {
+  return request(`/admin/payouts/${id}/sync`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
 export type BeneficiarySummary = {
   id: string;
   merchant_id: string;
@@ -499,6 +548,10 @@ export async function listPayouts(params: {
   merchant_id?: string;
   sub_merchant_id?: string;
   status?: string;
+  method?: string;
+  from?: string;
+  to?: string;
+  beneficiary_query?: string;
 } = {}): Promise<Paginated<PayoutSummary>> {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {

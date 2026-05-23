@@ -1,17 +1,33 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { requireAuth } from '@/lib/session';
 import { getMerchantDetail, listPayouts, OgunApiError } from '@/lib/api';
+import type { PayoutSummary } from '@/lib/api';
 import { PanelChrome } from '../_components/PanelChrome';
 import { Badge, formatIsoDate } from '@/components/Badge';
+import { PayoutFilters } from './_components/PayoutFilters';
+import { ColumnToggle, type ToggleCol } from './_components/ColumnToggle';
+
+const TOGGLE_COLS: ToggleCol[] = [
+  { key: 'provider_reference', label: 'Provider ref' },
+  { key: 'reversal_indicator', label: 'Reversal' },
+  { key: 'reversal_reason', label: 'Reversal reason' },
+  { key: 'failure_reason', label: 'Failure reason' },
+  { key: 'wallet_reserved_amount', label: 'Wallet reserved' },
+  { key: 'idempotency_key', label: 'Idempotency key' },
+];
 
 export default async function MerchantPayoutsTab({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }): Promise<React.ReactElement> {
   await requireAuth();
   const { id } = await params;
+  const sp = await searchParams;
   let detail;
   try {
     detail = await getMerchantDetail(id);
@@ -19,7 +35,29 @@ export default async function MerchantPayoutsTab({
     if (err instanceof OgunApiError && err.status === 404) notFound();
     throw err;
   }
-  const result = await listPayouts({ merchant_id: id, limit: 50 });
+
+  const filters: Record<string, string | undefined> = {
+    status: typeof sp.status === 'string' ? sp.status : undefined,
+    method: typeof sp.method === 'string' ? sp.method : undefined,
+    from: typeof sp.from === 'string' ? sp.from : undefined,
+    to: typeof sp.to === 'string' ? sp.to : undefined,
+    beneficiary: typeof sp.beneficiary === 'string' ? sp.beneficiary : undefined,
+  };
+
+  const result = await listPayouts({
+    merchant_id: id,
+    limit: 50,
+    status: filters.status || undefined,
+    method: filters.method || undefined,
+    from: filters.from || undefined,
+    to: filters.to || undefined,
+    beneficiary_query: filters.beneficiary || undefined,
+  });
+
+  // Read toggled columns from cookie
+  const cookieStore = await cookies();
+  const toggleCookie = cookieStore.get('ogun_admin_payouts_toggle_cols')?.value ?? '';
+  const enabledToggleCols = new Set(toggleCookie.split(',').filter(Boolean));
 
   const volumeCents = result.items.reduce(
     (acc, p) => acc + Number(p.total_debit ?? 0),
@@ -64,26 +102,53 @@ export default async function MerchantPayoutsTab({
         <Kpi label="Total" value={String(result.total)} />
       </div>
 
+      {/* Filter bar */}
+      <PayoutFilters
+        merchantId={id}
+        currentStatus={filters.status}
+        currentMethod={filters.method}
+        currentFrom={filters.from}
+        currentTo={filters.to}
+        currentBeneficiary={filters.beneficiary}
+      />
+
       <div className="panel overflow-x-auto">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-ogun-border">
+          <span className="text-xs text-ogun-muted">
+            {result.total} payout{result.total === 1 ? '' : 's'}
+          </span>
+          <ColumnToggle
+            columns={TOGGLE_COLS}
+            enabledCols={Array.from(enabledToggleCols)}
+          />
+        </div>
         <table className="table-default w-full text-sm">
           <thead>
             <tr>
               <th className="text-left">Payout ID</th>
               <th className="text-left">Method</th>
-              <th className="text-right">Recipient</th>
+              <th className="text-left">Beneficiary</th>
+              <th className="text-right">Amount</th>
               <th className="text-right">Fee</th>
               <th className="text-right">Total debit</th>
               <th className="text-left">Status</th>
-              <th className="text-left">Provider</th>
+              <th className="text-left">Provider status</th>
               <th className="text-left">TRF code</th>
+              <th className="text-left">Reference</th>
               <th className="text-left">Created</th>
               <th className="text-left">Resolved</th>
+              {enabledToggleCols.has('provider_reference') && <th className="text-left">Provider ref</th>}
+              {enabledToggleCols.has('reversal_indicator') && <th className="text-left">Reversal</th>}
+              {enabledToggleCols.has('reversal_reason') && <th className="text-left">Reversal reason</th>}
+              {enabledToggleCols.has('failure_reason') && <th className="text-left">Failure reason</th>}
+              {enabledToggleCols.has('wallet_reserved_amount') && <th className="text-right">Wallet reserved</th>}
+              {enabledToggleCols.has('idempotency_key') && <th className="text-left">Idempotency key</th>}
             </tr>
           </thead>
           <tbody>
             {result.items.length === 0 && (
               <tr>
-                <td colSpan={10} className="text-center text-ogun-muted py-8">
+                <td colSpan={12 + enabledToggleCols.size} className="text-center text-ogun-muted py-8">
                   No payouts yet — payouts appear here once the merchant
                   initiates a disbursement or a settlement triggers one.
                 </td>
@@ -100,16 +165,49 @@ export default async function MerchantPayoutsTab({
                   </Link>
                 </td>
                 <td>{p.method}</td>
+                <td className="text-xs max-w-[140px] truncate">{p.beneficiary_name ?? '—'}</td>
                 <td className="text-right">KES {(Number(p.recipient_amount) / 100).toLocaleString()}</td>
-                <td className="text-right text-ogun-muted">KES {(Number(p.fee_amount) / 100).toLocaleString()}</td>
+                <td className="text-right text-ogun-muted">
+                  KES {(Number(p.fee_amount) / 100).toLocaleString()}
+                  <span className="ml-1 text-[10px] text-ogun-muted">{p.fee_model === 'recipient_covers' ? 'RC' : 'MC'}</span>
+                </td>
                 <td className="text-right">KES {(Number(p.total_debit) / 100).toLocaleString()}</td>
                 <td><Badge status={p.status} /></td>
                 <td className="text-xs text-ogun-muted">{p.provider_status ?? '—'}</td>
                 <td className="mono text-xs text-ogun-muted max-w-[120px] truncate">
                   {p.provider_transfer_code ?? '—'}
                 </td>
+                <td className="mono text-xs text-ogun-muted max-w-[180px] truncate">
+                  {p.reference ?? '—'}
+                </td>
                 <td className="text-xs text-ogun-muted">{formatIsoDate(p.created_at)}</td>
                 <td className="text-xs text-ogun-muted">{p.final_resolved_at ? formatIsoDate(p.final_resolved_at) : '—'}</td>
+                {enabledToggleCols.has('provider_reference') && (
+                  <td className="mono text-xs text-ogun-muted max-w-[120px] truncate">{p.provider_reference ?? '—'}</td>
+                )}
+                {enabledToggleCols.has('reversal_indicator') && (
+                  <td className="text-xs">{p.reversal_indicator ? '⚠ yes' : '—'}</td>
+                )}
+                {enabledToggleCols.has('reversal_reason') && (
+                  <td className="text-xs text-ogun-muted max-w-[120px] truncate">
+                    {(p as Record<string, unknown>).reversal_reason as string ?? '—'}
+                  </td>
+                )}
+                {enabledToggleCols.has('failure_reason') && (
+                  <td className="text-xs text-ogun-muted max-w-[120px] truncate">{p.failure_reason ?? '—'}</td>
+                )}
+                {enabledToggleCols.has('wallet_reserved_amount') && (
+                  <td className="text-right text-xs text-ogun-muted">
+                    {(p as Record<string, unknown>).wallet_reserved_amount != null
+                      ? `KES ${(Number((p as Record<string, unknown>).wallet_reserved_amount) / 100).toLocaleString()}`
+                      : '—'}
+                  </td>
+                )}
+                {enabledToggleCols.has('idempotency_key') && (
+                  <td className="mono text-xs text-ogun-muted max-w-[120px] truncate">
+                    {(p as Record<string, unknown>).idempotency_key as string ?? '—'}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
