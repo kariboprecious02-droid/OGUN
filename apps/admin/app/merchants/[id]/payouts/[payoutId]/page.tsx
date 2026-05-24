@@ -334,40 +334,41 @@ export default async function PayoutDetailPage({
             Integration logs
           </h2>
 
-          {logs.lifecycle.length === 0 && logs.paystack_inbound.length === 0 && logs.webhook_deliveries.length === 0 ? (
-            <p className="text-sm text-ogun-muted">
-              No integration logs captured for this payout yet.
-            </p>
-          ) : (
-            <>
-              {/* (a) Lifecycle events */}
-              <div className="text-xs text-ogun-muted mb-2">
-                Lifecycle events ({logs.lifecycle.length})
-              </div>
-              {logs.lifecycle.length === 0 ? (
-                <p className="text-xs text-ogun-muted mb-4 p-2 bg-ogun-bg rounded-md border border-ogun-border">
-                  Lifecycle events not captured for this payout (payout predates the
-                  payout_events observability table — Task 3 item #5).
-                </p>
-              ) : (
-                <div className="overflow-x-auto mb-4 space-y-0">
-                  {logs.lifecycle.map((e) => (
-                    <details key={e.id} className="border-t border-ogun-border group">
-                      <summary className="flex items-center gap-3 px-3 py-2 text-xs cursor-pointer hover:bg-ogun-bg/50 list-none">
-                        <span className="whitespace-nowrap text-ogun-muted w-[140px]">{formatIsoDate(e.occurred_at)}</span>
-                        <span className="mono font-medium w-[130px]">{e.event_type}</span>
-                        <span className="flex-1 text-ogun-muted truncate">{e.message ?? '—'}</span>
-                        <span className="text-ogun-accent-on-dark text-[10px]">&#9654;</span>
-                      </summary>
-                      <div className="px-3 py-2 bg-ogun-bg border-l-2 border-ogun-accent-on-dark ml-3">
-                        <pre className="text-xs mono overflow-x-auto whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto">
-                          {JSON.stringify(e.payload, null, 2)}
-                        </pre>
+          <>
+            {/* (a) Lifecycle events */}
+            <div className="text-xs text-ogun-muted mb-2">
+              API calls &amp; lifecycle events ({logs.lifecycle.length})
+            </div>
+            {logs.lifecycle.length === 0 ? (
+              <p className="text-xs text-ogun-muted mb-4 p-2 bg-ogun-bg rounded-md border border-ogun-border">
+                No lifecycle events captured for this payout. Events will appear
+                for new payouts after the observability layer deploys.
+              </p>
+            ) : (
+              <div className="overflow-x-auto mb-4 space-y-0">
+                {logs.lifecycle.map((e) => (
+                  <details key={e.id} className="border-t border-ogun-border group">
+                    <summary className="flex items-center gap-3 px-3 py-2 text-xs cursor-pointer hover:bg-ogun-bg/50 list-none">
+                      <span className="whitespace-nowrap text-ogun-muted w-[140px]">{formatIsoDate(e.occurred_at)}</span>
+                      {e.payload?.direction ? (
+                        <span className="w-[120px] font-medium text-ogun-accent-on-dark text-[10px]">{String(e.payload.direction)}</span>
+                      ) : null}
+                      <span className="mono font-medium w-[130px]">{e.event_type}</span>
+                      <span className="flex-1 text-ogun-muted truncate">{e.message ?? '—'}</span>
+                      <span className="text-ogun-accent-on-dark text-[10px]">&#9654;</span>
+                    </summary>
+                    <div className="px-3 py-2 bg-ogun-bg border-l-2 border-ogun-accent-on-dark ml-3">
+                      <div className="text-[10px] text-ogun-muted uppercase mb-1">
+                        {e.payload?.direction ? String(e.payload.direction) : 'Payload'}
                       </div>
-                    </details>
-                  ))}
-                </div>
-              )}
+                      <pre className="text-xs mono overflow-x-auto whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto">
+                        {JSON.stringify(e.payload, null, 2)}
+                      </pre>
+                    </div>
+                  </details>
+                ))}
+              </div>
+            )}
 
               {/* (b) Inbound Paystack webhooks */}
               <div className="text-xs text-ogun-muted mb-2">
@@ -435,8 +436,7 @@ export default async function PayoutDetailPage({
                   </div>
                 </>
               )}
-            </>
-          )}
+          </>
         </section>
 
         {/* Operational actions */}

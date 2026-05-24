@@ -11,6 +11,7 @@ import { query } from '@/infra/db/pool';
 import { newId } from '@/infra/ids';
 import { config } from '@/infra/config';
 import { logger } from '@/infra/logger';
+import { setContextField } from '@/infra/requestContext';
 import { getCollectionConnector, getPayoutConnector } from '@/modules/connectors/registry';
 import { findCollection } from '@/modules/collection/collection.repository';
 import {
@@ -199,6 +200,7 @@ async function processJob(job: PollingJobRow, now: Date): Promise<void> {
   }
 
   if (job.reference_type === 'payout') {
+    setContextField('payout_id', job.reference_id);
     const { rows: payoutRows } = await dbQuery<{
       id: string;
       status: string;

@@ -49,6 +49,8 @@ import {
 import { emitEvent } from '@/modules/webhook/webhook.service';
 import { enqueuePollingJob } from '@/modules/polling/polling.service';
 import { trackAsync } from '@/infra/asyncTracker';
+import { setContextField } from '@/infra/requestContext';
+import { recordPayoutEvent } from '@/modules/observability/payoutEvents';
 
 export type CreatePayoutInput = {
   merchant_id: string;
@@ -210,9 +212,16 @@ export async function createPayout(input: CreatePayoutInput): Promise<CreatePayo
 }
 
 async function dispatchPayout(payoutId: string, beneficiary: BeneficiaryRow): Promise<void> {
+  setContextField('payout_id', payoutId);
   const row = await findPayout(payoutId);
   if (!row) return;
   const connector = getPayoutConnector(row.provider);
+  recordPayoutEvent({
+    payout_id: payoutId,
+    event_type: 'dispatch.started',
+    source: 'orchestrator',
+    message: `Dispatching to ${row.provider} via ${row.method}`,
+  });
 
   if (!beneficiary.provider_recipient_code && row.provider === 'paystack') {
     const { PaystackPayoutConnector } = await import('@/modules/connectors/paystack.payout.connector');
@@ -486,9 +495,16 @@ export async function listPayouts(params: Parameters<typeof listPayoutsRepo>[0])
  * terminal-state handler the webhook + poller use.
  */
 export async function syncPayout(id: string): Promise<PayoutRow> {
+  setContextField('payout_id', id);
   const row = await getPayout(id);
   if (isPayoutTerminal(row.status)) return row;
   if (!row.provider_reference) return row;
+  recordPayoutEvent({
+    payout_id: id,
+    event_type: 'sync.requested',
+    source: 'api',
+    message: `Sync requested — querying provider for ${row.provider_reference}`,
+  });
 
   const connector = getPayoutConnector(row.provider);
   const result = await connector.getPayoutStatus(row.provider_reference);

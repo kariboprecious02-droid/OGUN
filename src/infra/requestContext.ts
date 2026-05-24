@@ -5,6 +5,7 @@ type RequestContext = {
   correlation_id?: string;
   merchant_id?: string;
   collection_id?: string;
+  payout_id?: string;
 };
 
 const als = new AsyncLocalStorage<RequestContext>();

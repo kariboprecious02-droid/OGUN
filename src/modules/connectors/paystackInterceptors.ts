@@ -2,6 +2,7 @@ import { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse, AxiosError } 
 import { logger } from '@/infra/logger';
 import { getRequestId, getContext } from '@/infra/requestContext';
 import { recordCollectionEvent } from '@/modules/observability/collectionEvents';
+import { recordPayoutEvent } from '@/modules/observability/payoutEvents';
 
 function redactBody(data: unknown): Record<string, unknown> | undefined {
   if (!data || typeof data !== 'object') return undefined;
@@ -70,6 +71,20 @@ export function attachPaystackInterceptors(http: AxiosInstance, connectorName: s
         message: `${req.method?.toUpperCase()} ${req.url}`,
       });
     }
+    if (ctx?.payout_id) {
+      recordPayoutEvent({
+        payout_id: ctx.payout_id,
+        event_type: 'provider.requested',
+        source: 'connector',
+        payload: {
+          direction: 'Ogun → Paystack',
+          method: req.method?.toUpperCase(),
+          url: req.url,
+          request_body: redactBody(req.data),
+        },
+        message: `${req.method?.toUpperCase()} ${req.url}`,
+      });
+    }
     return req;
   });
 
@@ -109,6 +124,22 @@ export function attachPaystackInterceptors(http: AxiosInstance, connectorName: s
           message: `${res.status} ${res.config.url} (${ms}ms)`,
         });
       }
+      if (ctx?.payout_id) {
+        recordPayoutEvent({
+          payout_id: ctx.payout_id,
+          event_type: 'provider.responded',
+          source: 'connector',
+          http_status: res.status,
+          latency_ms: ms,
+          payload: {
+            direction: 'Paystack → Ogun',
+            method: res.config.method?.toUpperCase(),
+            url: res.config.url,
+            response_body: redactBody(res.data),
+          },
+          message: `${res.status} ${res.config.url} (${ms}ms)`,
+        });
+      }
       return res;
     },
     (err: AxiosError) => {
@@ -129,6 +160,23 @@ export function attachPaystackInterceptors(http: AxiosInstance, connectorName: s
       if (ctx?.collection_id) {
         recordCollectionEvent({
           collection_id: ctx.collection_id,
+          event_type: 'provider.errored',
+          source: 'connector',
+          http_status: err.response?.status,
+          latency_ms: ms,
+          payload: {
+            direction: 'Paystack → Ogun',
+            method: err.config?.method?.toUpperCase(),
+            url: err.config?.url,
+            err_code: err.code,
+            response_body: redactBody(err.response?.data),
+          },
+          message: `${err.code ?? 'ERROR'} ${err.config?.url} (${ms}ms)`,
+        });
+      }
+      if (ctx?.payout_id) {
+        recordPayoutEvent({
+          payout_id: ctx.payout_id,
           event_type: 'provider.errored',
           source: 'connector',
           http_status: err.response?.status,

@@ -3,13 +3,15 @@ import { notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { requireAuth } from '@/lib/session';
 import { getMerchantDetail, listPayouts, OgunApiError } from '@/lib/api';
-import type { PayoutSummary } from '@/lib/api';
 import { PanelChrome } from '../_components/PanelChrome';
 import { Badge, formatIsoDate } from '@/components/Badge';
 import { PayoutFilters } from './_components/PayoutFilters';
 import { ColumnToggle, type ToggleCol } from './_components/ColumnToggle';
 
 const TOGGLE_COLS: ToggleCol[] = [
+  { key: 'provider_status', label: 'Provider status' },
+  { key: 'trf_code', label: 'TRF code' },
+  { key: 'reference', label: 'Reference' },
   { key: 'provider_reference', label: 'Provider ref' },
   { key: 'reversal_indicator', label: 'Reversal' },
   { key: 'reversal_reason', label: 'Reversal reason' },
@@ -132,11 +134,11 @@ export default async function MerchantPayoutsTab({
               <th className="text-right">Fee</th>
               <th className="text-right">Total debit</th>
               <th className="text-left">Status</th>
-              <th className="text-left">Provider status</th>
-              <th className="text-left">TRF code</th>
-              <th className="text-left">Reference</th>
               <th className="text-left">Created</th>
               <th className="text-left">Resolved</th>
+              {enabledToggleCols.has('provider_status') && <th className="text-left">Provider status</th>}
+              {enabledToggleCols.has('trf_code') && <th className="text-left">TRF code</th>}
+              {enabledToggleCols.has('reference') && <th className="text-left">Reference</th>}
               {enabledToggleCols.has('provider_reference') && <th className="text-left">Provider ref</th>}
               {enabledToggleCols.has('reversal_indicator') && <th className="text-left">Reversal</th>}
               {enabledToggleCols.has('reversal_reason') && <th className="text-left">Reversal reason</th>}
@@ -148,9 +150,8 @@ export default async function MerchantPayoutsTab({
           <tbody>
             {result.items.length === 0 && (
               <tr>
-                <td colSpan={12 + enabledToggleCols.size} className="text-center text-ogun-muted py-8">
-                  No payouts yet — payouts appear here once the merchant
-                  initiates a disbursement or a settlement triggers one.
+                <td colSpan={9 + enabledToggleCols.size} className="text-center text-ogun-muted py-8">
+                  No payouts found.
                 </td>
               </tr>
             )}
@@ -173,15 +174,17 @@ export default async function MerchantPayoutsTab({
                 </td>
                 <td className="text-right">KES {(Number(p.total_debit) / 100).toLocaleString()}</td>
                 <td><Badge status={p.status} /></td>
-                <td className="text-xs text-ogun-muted">{p.provider_status ?? '—'}</td>
-                <td className="mono text-xs text-ogun-muted max-w-[120px] truncate">
-                  {p.provider_transfer_code ?? '—'}
-                </td>
-                <td className="mono text-xs text-ogun-muted max-w-[180px] truncate">
-                  {p.reference ?? '—'}
-                </td>
                 <td className="text-xs text-ogun-muted">{formatIsoDate(p.created_at)}</td>
                 <td className="text-xs text-ogun-muted">{p.final_resolved_at ? formatIsoDate(p.final_resolved_at) : '—'}</td>
+                {enabledToggleCols.has('provider_status') && (
+                  <td className="text-xs text-ogun-muted">{p.provider_status ?? '—'}</td>
+                )}
+                {enabledToggleCols.has('trf_code') && (
+                  <td className="mono text-xs text-ogun-muted max-w-[120px] truncate">{p.provider_transfer_code ?? '—'}</td>
+                )}
+                {enabledToggleCols.has('reference') && (
+                  <td className="mono text-xs text-ogun-muted max-w-[180px] truncate">{p.reference ?? '—'}</td>
+                )}
                 {enabledToggleCols.has('provider_reference') && (
                   <td className="mono text-xs text-ogun-muted max-w-[120px] truncate">{p.provider_reference ?? '—'}</td>
                 )}
