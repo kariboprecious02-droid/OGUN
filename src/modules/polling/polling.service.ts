@@ -45,7 +45,9 @@ export async function enqueuePollingJob(input: {
 }): Promise<void> {
   const now = new Date();
   const interval = config.polling.intervalSeconds * 1000;
-  const ttl = config.polling.ttlSeconds * 1000;
+  const ttl = input.referenceType === 'payout'
+    ? 30 * 24 * 60 * 60 * 1000
+    : config.polling.ttlSeconds * 1000;
   await query(
     `INSERT INTO polling_jobs
        (id, reference_type, reference_id, provider_reference, provider,
@@ -109,17 +111,15 @@ export async function tickPoller(now = new Date()): Promise<void> {
 }
 
 async function processJob(job: PollingJobRow, now: Date): Promise<void> {
-  if (job.ttl_expires_at <= now) {
-    if (job.reference_type === 'collection') {
-      recordCollectionEvent({
-        collection_id: job.reference_id,
-        event_type: 'polling.timeout',
-        source: 'poller',
-        payload: { poll_count: job.poll_count, ttl_expires_at: job.ttl_expires_at.toISOString() },
-        message: `polling TTL expired after ${job.poll_count} ticks`,
-      });
-      await timeoutCollection(job.reference_id);
-    }
+  if (job.ttl_expires_at <= now && job.reference_type === 'collection') {
+    recordCollectionEvent({
+      collection_id: job.reference_id,
+      event_type: 'polling.timeout',
+      source: 'poller',
+      payload: { poll_count: job.poll_count, ttl_expires_at: job.ttl_expires_at.toISOString() },
+      message: `polling TTL expired after ${job.poll_count} ticks`,
+    });
+    await timeoutCollection(job.reference_id);
     await stopPollingJob(job.reference_type, job.reference_id, 'timeout');
     return;
   }
@@ -234,12 +234,21 @@ async function processJob(job: PollingJobRow, now: Date): Promise<void> {
       return;
     }
 
-    const next = new Date(now.getTime() + config.polling.intervalSeconds * 1000);
+    const tickCount = job.poll_count + 1;
+    const intervalMs = payoutPollInterval(tickCount);
+    const next = new Date(now.getTime() + intervalMs);
     await query(
       `UPDATE polling_jobs SET poll_count = poll_count + 1, next_poll_at = $2 WHERE id = $1 AND status = 'active'`,
       [job.id, next],
     );
-    logger.info({ payout_id: payout.id, poll_count: job.poll_count + 1, status: result.normalized_status },
+    logger.info({ payout_id: payout.id, poll_count: tickCount, status: result.normalized_status, next_in_ms: intervalMs },
       'payout poll tick: still processing');
   }
+}
+
+function payoutPollInterval(tickCount: number): number {
+  if (tickCount <= 6) return 5_000;
+  if (tickCount <= 20) return 15_000;
+  if (tickCount <= 60) return 30_000;
+  return 60_000;
 }

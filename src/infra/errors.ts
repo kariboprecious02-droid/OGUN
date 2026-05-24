@@ -91,7 +91,7 @@ export class OgunError extends Error {
   static insufficientPayoutBalance(details: Record<string, unknown>): OgunError {
     return new OgunError(
       ErrorCode.InsufficientPayoutBalance,
-      'Payout wallet has insufficient balance for total_debit',
+      'Insufficient funds. Please fund your payout wallet and retry.',
       details,
     );
   }

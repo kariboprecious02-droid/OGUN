@@ -203,8 +203,25 @@ export async function createPayout(input: CreatePayoutInput): Promise<CreatePayo
   });
 
   trackAsync(
-    dispatchPayout(payoutRow.id, beneficiary).catch((err) => {
-      logger.error({ err, payout_id: payoutRow.id }, 'payout dispatch failed');
+    dispatchPayout(payoutRow.id, beneficiary).catch(async (err) => {
+      logger.error({ err, payout_id: payoutRow.id }, 'payout dispatch failed — releasing reservation');
+      recordPayoutEvent({
+        payout_id: payoutRow.id,
+        event_type: 'dispatch.failed',
+        source: 'orchestrator',
+        payload: { error: (err as Error).message },
+        message: `Dispatch failed: ${(err as Error).message}`,
+      });
+      try {
+        await resolvePayout(payoutRow.id, {
+          source: 'api',
+          normalizedStatus: 'failed',
+          failureReason: `dispatch_error: ${(err as Error).message}`,
+        });
+      } catch (resolveErr) {
+        logger.error({ err: resolveErr, payout_id: payoutRow.id },
+          'failed to resolve payout after dispatch error');
+      }
     }),
   );
 
@@ -285,12 +302,38 @@ async function dispatchPayout(payoutId: string, beneficiary: BeneficiaryRow): Pr
     });
   });
 
+  recordPayoutEvent({
+    payout_id: payoutId,
+    event_type: 'dispatch.completed',
+    source: 'orchestrator',
+    payload: {
+      normalized_status: result.normalized_status,
+      provider_reference: result.provider_reference,
+      next_action: result.next_action,
+    },
+    message: `Dispatch completed: ${result.normalized_status}`,
+  });
+
   if (result.next_action === 'poll') {
     await enqueuePollingJob({
       referenceType: 'payout',
       referenceId: row.id,
       providerReference: result.provider_reference,
       provider: row.provider,
+    });
+  }
+
+  if (result.normalized_status === 'processing' || result.normalized_status === 'pending_approval') {
+    await emitEvent({
+      merchantId: row.merchant_id,
+      type: 'payout.processing',
+      data: {
+        payout_id: row.id,
+        merchant_id: row.merchant_id,
+        sub_merchant_id: row.sub_merchant_id,
+        status: result.normalized_status === 'pending_approval' ? 'pending_approval' : 'processing',
+        provider_reference: result.provider_reference,
+      },
     });
   }
 
@@ -530,6 +573,71 @@ export async function syncPayout(id: string): Promise<PayoutRow> {
       reversalReason: result.error_code ?? 'provider_reversed',
     });
   }
+  return getPayout(id);
+}
+
+export async function finalizePayoutOtp(id: string, otp: string): Promise<PayoutRow> {
+  const row = await getPayout(id);
+  if (row.status !== PayoutStatus.PendingApproval) {
+    throw OgunError.invalidRequest(
+      `Payout ${id} is in status '${row.status}', not 'pending_approval'. OTP finalization only applies to payouts awaiting approval.`,
+    );
+  }
+  if (!row.provider_transfer_code) {
+    throw OgunError.invalidRequest(
+      'Payout has no provider_transfer_code — cannot finalize OTP.',
+    );
+  }
+  const { PaystackPayoutConnector } = await import('@/modules/connectors/paystack.payout.connector');
+  const connector = getPayoutConnector(row.provider);
+  if (!(connector instanceof PaystackPayoutConnector)) {
+    throw OgunError.invalidRequest('OTP finalization is only supported for Paystack payouts.');
+  }
+
+  recordPayoutEvent({
+    payout_id: id,
+    event_type: 'dispatch.started',
+    source: 'api',
+    message: `OTP finalization for transfer ${row.provider_transfer_code}`,
+  });
+
+  const result = await connector.finalizeTransfer(row.provider_transfer_code, otp);
+
+  await withTransaction(async (client) => {
+    const locked = await lockPayout(client, id);
+    if (isPayoutTerminal(locked.status)) return;
+    await updatePayout(client, id, {
+      status: PayoutStatus.Processing,
+      provider_status: result.raw_payload?.data
+        ? ((result.raw_payload as Record<string, unknown>).data as Record<string, unknown>).status as string ?? 'processing'
+        : 'processing',
+    });
+  });
+
+  if (result.next_action === 'poll') {
+    await enqueuePollingJob({
+      referenceType: 'payout',
+      referenceId: row.id,
+      providerReference: result.provider_reference || row.provider_reference,
+      provider: row.provider,
+    });
+  }
+
+  if (result.normalized_status === 'succeeded') {
+    await resolvePayout(row.id, {
+      source: 'api',
+      normalizedStatus: 'succeeded',
+      providerReference: result.provider_reference,
+    });
+  } else if (result.normalized_status === 'failed') {
+    await resolvePayout(row.id, {
+      source: 'api',
+      normalizedStatus: 'failed',
+      providerReference: result.provider_reference,
+      failureReason: result.error_code ?? 'otp_finalize_failed',
+    });
+  }
+
   return getPayout(id);
 }
 

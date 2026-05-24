@@ -82,10 +82,10 @@ export class PaystackPayoutConnector implements PayoutConnector {
       }
       const body = {
         source: 'balance',
-        amount: req.amount, // recipient_amount — Paystack deducts from platform balance
+        amount: req.amount,
         recipient,
         reason: req.reason ?? 'Ogun payout',
-        reference: req.payout_id,
+        reference: req.payout_id.toLowerCase(),
         currency: req.currency,
       };
       const { data } = await this.http.post('/transfer', body);
@@ -197,6 +197,38 @@ export class PaystackPayoutConnector implements PayoutConnector {
       failure_reason: normalized === 'failed' ? body.data?.reason : undefined,
       raw: body as Record<string, unknown>,
     };
+  }
+
+  async finalizeTransfer(transferCode: string, otp: string): Promise<ConnectorResult<NormalizedPayoutStatus>> {
+    try {
+      const { data } = await this.http.post('/transfer/finalize_transfer', {
+        transfer_code: transferCode,
+        otp,
+      });
+      const resp = data as {
+        status: boolean;
+        data?: { status?: string; reference?: string; transfer_code?: string };
+        message?: string;
+      };
+      const rawStatus = resp.data?.status ?? (resp.status ? 'pending' : 'failed');
+      return {
+        normalized_status: this.mapTransferStatus(rawStatus),
+        provider_reference: resp.data?.reference ?? '',
+        raw_payload: resp as Record<string, unknown>,
+        error_code: resp.status ? null : 'otp_finalize_failed',
+        error_message: resp.status ? null : resp.message ?? 'OTP finalization failed',
+        next_action: resp.status ? 'poll' : 'escalate',
+      };
+    } catch (err) {
+      return {
+        normalized_status: 'failed',
+        provider_reference: '',
+        raw_payload: { error: (err as Error).message },
+        error_code: 'otp_finalize_error',
+        error_message: (err as Error).message,
+        next_action: 'escalate',
+      };
+    }
   }
 
   validateWebhookSignature(payload: Buffer, headers: Record<string, string>): boolean {

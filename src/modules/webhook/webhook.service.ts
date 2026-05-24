@@ -43,6 +43,7 @@ export type OgunEventType =
   | 'collection.failed'
   | 'collection.refunded'
   | 'payout.created'
+  | 'payout.processing'
   | 'payout.succeeded'
   | 'payout.failed'
   | 'payout.reversed'
