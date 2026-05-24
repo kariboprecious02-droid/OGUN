@@ -9,7 +9,6 @@ import {
   getPayout,
   listPayouts,
   syncPayout,
-  finalizePayoutOtp,
 } from '@/modules/payout/payout.service';
 import { PayoutStatus } from '@/modules/payout/payout.types';
 import { enforceRateLimit } from '@/infra/rateLimit';
@@ -194,35 +193,6 @@ router.post('/payouts/:id/sync', authenticate(), async (req, res, next) => {
           provider_reference: p.provider_reference,
           reversal_indicator: p.reversal_indicator,
           failure_reason: p.failure_reason,
-        },
-        { request_id: req.ogunContext.requestId },
-      ),
-    );
-  } catch (err) {
-    next(err);
-  }
-});
-
-const otpBody = z.object({
-  otp: z.string().min(4).max(10),
-});
-
-router.post('/payouts/:id/approve', authenticate(), async (req, res, next) => {
-  try {
-    requireSecretKey(req);
-    const existing = await getPayout(req.params.id);
-    if (existing.merchant_id !== req.ogunContext.principal!.merchantId) {
-      throw OgunError.notFound('Payout', req.params.id);
-    }
-    const { otp } = parseBody(otpBody, req.body);
-    const p = await finalizePayoutOtp(existing.id, otp);
-    res.json(
-      success(
-        {
-          payout_id: p.id,
-          status: p.status,
-          provider_status: p.provider_status,
-          provider_reference: p.provider_reference,
         },
         { request_id: req.ogunContext.requestId },
       ),
