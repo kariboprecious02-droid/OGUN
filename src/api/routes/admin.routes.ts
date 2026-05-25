@@ -32,6 +32,8 @@ import multer from 'multer';
 import { config } from '@/infra/config';
 import { query } from '@/infra/db/pool';
 import { syncPayout } from '@/modules/payout/payout.service';
+import { registerWebhookEndpoint, listWebhookEndpoints } from '@/modules/webhook/webhook.service';
+import { generateApiKey } from '@/infra/crypto';
 import { enforceRateLimit } from '@/infra/rateLimit';
 
 const router = Router();
@@ -644,7 +646,7 @@ router.get('/admin/payouts', async (req, res, next) => {
         `SELECT p.id, p.merchant_id, p.sub_merchant_id, p.beneficiary_id, p.amount, p.fee_amount, p.total_debit,
                 p.recipient_amount, p.fee_model, p.currency, p.method, p.provider, p.status,
                 p.provider_reference, p.provider_status, p.provider_transfer_code,
-                p.failure_reason, p.reversal_indicator, p.reference,
+                p.failure_reason, p.reversal_indicator, p.external_reference AS reference,
                 p.created_at, p.final_resolved_at,
                 b.name AS beneficiary_name
            FROM payouts p
@@ -845,6 +847,39 @@ router.get('/admin/beneficiaries/:id', async (req, res, next) => {
     const { rows } = await query(`SELECT * FROM beneficiaries WHERE id = $1`, [req.params.id]);
     if (rows.length === 0) throw OgunError.notFound('Beneficiary', req.params.id);
     res.json(success(rows[0], { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/admin/merchants/:id/webhook-endpoints', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const endpoints = await listWebhookEndpoints(req.params.id);
+    res.json(success(endpoints, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/admin/merchants/:id/webhook-endpoints', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const { url, subscribed_events } = req.body as { url: string; subscribed_events?: string[] };
+    if (!url) throw OgunError.invalidRequest('url is required');
+    const secret = generateApiKey('whsec', 'test');
+    const result = await registerWebhookEndpoint({
+      merchant_id: req.params.id,
+      url,
+      webhookSecret: secret,
+      subscribed_events: subscribed_events ?? [],
+    });
+    res.status(201).json(success({
+      id: result.id,
+      url,
+      webhook_secret: secret,
+      subscribed_events: subscribed_events ?? [],
+    }, { request_id: req.ogunContext.requestId }));
   } catch (err) {
     next(err);
   }

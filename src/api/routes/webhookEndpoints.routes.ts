@@ -39,6 +39,7 @@ const SUBSCRIBABLE_EVENTS = [
   'collection.failed',
   'collection.refunded',
   'payout.created',
+  'payout.processing',
   'payout.succeeded',
   'payout.failed',
   'payout.reversed',
