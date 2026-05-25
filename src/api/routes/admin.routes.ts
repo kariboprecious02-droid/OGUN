@@ -32,7 +32,7 @@ import multer from 'multer';
 import { config } from '@/infra/config';
 import { query } from '@/infra/db/pool';
 import { syncPayout } from '@/modules/payout/payout.service';
-import { registerWebhookEndpoint, listWebhookEndpoints } from '@/modules/webhook/webhook.service';
+import { registerWebhookEndpoint, listWebhookEndpoints, syncWebhookEndpointFromUrl, removeWebhookEndpoints } from '@/modules/webhook/webhook.service';
 import { generateApiKey } from '@/infra/crypto';
 import { enforceRateLimit } from '@/infra/rateLimit';
 
@@ -1069,6 +1069,13 @@ router.patch('/admin/merchants/:id/settings', async (req, res, next) => {
       sub_merchant_id: null,
       ...body,
     });
+    if (body.webhook_url !== undefined) {
+      if (body.webhook_url) {
+        await syncWebhookEndpointFromUrl(req.params.id, body.webhook_url);
+      } else {
+        await removeWebhookEndpoints(req.params.id);
+      }
+    }
     const effective = await resolveEffectiveSettings(req.params.id, null);
     res.json(success(effective, { request_id: req.ogunContext.requestId }));
   } catch (err) {

@@ -20,6 +20,8 @@ import { MerchantStatus } from '@/modules/merchant/merchant.types';
 import { runCompliancePipeline } from '@/modules/compliance/compliance.service';
 import { upsertSettings, resolveEffectiveSettings } from '@/modules/merchant/settings.repository';
 import { rotateKey } from '@/modules/auth/auth.service';
+import { syncWebhookEndpointFromUrl, removeWebhookEndpoints } from '@/modules/webhook/webhook.service';
+import { logger } from '@/infra/logger';
 
 const router = Router();
 
@@ -218,6 +220,7 @@ const settingsBody = z
     settlement_fee_pct: z.number().nonnegative().max(100).optional(),
     notification_emails: z.array(z.string().email()).optional(),
     enabled_methods: z.array(z.enum(['mpesa', 'airtel', 'till', 'card', 'bank'])).optional(),
+    webhook_url: z.string().url().startsWith('https://').max(2048).optional().nullable(),
   })
   .strict();
 
@@ -234,6 +237,17 @@ router.patch('/merchants/:id/settings', authenticate(), async (req, res, next) =
       sub_merchant_id: null,
       ...body,
     });
+    if (body.webhook_url !== undefined) {
+      if (body.webhook_url) {
+        const result = await syncWebhookEndpointFromUrl(req.params.id, body.webhook_url);
+        if (result.webhook_secret) {
+          logger.info({ merchant_id: req.params.id, endpoint_id: result.id },
+            'auto-created webhook endpoint from settings');
+        }
+      } else {
+        await removeWebhookEndpoints(req.params.id);
+      }
+    }
     const effective = await resolveEffectiveSettings(req.params.id, null);
     res.json(success(effective, { request_id: req.ogunContext.requestId }));
   } catch (err) {

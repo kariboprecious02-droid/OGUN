@@ -19,6 +19,7 @@ import {
   sha256Hex,
   encryptSecret,
   decryptSecret,
+  generateApiKey,
 } from '@/infra/crypto';
 import { logger } from '@/infra/logger';
 import { config } from '@/infra/config';
@@ -151,6 +152,38 @@ export async function deleteWebhookEndpoint(
     [id, merchantId],
   );
   return (res.rowCount ?? 0) > 0;
+}
+
+export async function syncWebhookEndpointFromUrl(
+  merchantId: string,
+  url: string,
+): Promise<{ id: string; webhook_secret: string }> {
+  const { rows: existing } = await query<{ id: string }>(
+    `SELECT id FROM webhook_endpoints WHERE merchant_id = $1 AND is_active = true LIMIT 1`,
+    [merchantId],
+  );
+  if (existing.length > 0) {
+    await query(
+      `UPDATE webhook_endpoints SET url = $2, updated_at = now() WHERE id = $1`,
+      [existing[0].id, url],
+    );
+    return { id: existing[0].id, webhook_secret: '' };
+  }
+  const secret = generateApiKey('whsec', 'test');
+  const result = await registerWebhookEndpoint({
+    merchant_id: merchantId,
+    url,
+    webhookSecret: secret,
+    subscribed_events: [],
+  });
+  return { id: result.id, webhook_secret: secret };
+}
+
+export async function removeWebhookEndpoints(merchantId: string): Promise<void> {
+  await query(
+    `UPDATE webhook_endpoints SET is_active = false, updated_at = now() WHERE merchant_id = $1 AND is_active = true`,
+    [merchantId],
+  );
 }
 
 /**
