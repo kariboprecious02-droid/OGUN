@@ -139,11 +139,14 @@ export default async function PayoutDetailPage({
     throw err;
   }
 
-  const logs = await getPayoutLogs(payoutId).catch((): PayoutLogs => ({
-    lifecycle: [],
-    paystack_inbound: [],
-    webhook_deliveries: [],
-  }));
+  let logs: PayoutLogs;
+  let logsFetchFailed = false;
+  try {
+    logs = await getPayoutLogs(payoutId);
+  } catch {
+    logsFetchFailed = true;
+    logs = { lifecycle: [], paystack_inbound: [], webhook_deliveries: [] };
+  }
 
   const { nodes, callout } = buildStepperNodes(p);
   const recipientAmount = centsToKes(p.recipient_amount);
@@ -334,6 +337,11 @@ export default async function PayoutDetailPage({
             Integration logs
           </h2>
 
+          {logsFetchFailed && (
+            <div className="p-3 mb-4 rounded-md bg-ogun-danger/10 border border-ogun-danger text-sm text-ogun-danger">
+              Failed to load integration logs. The API returned an error — check server logs for details.
+            </div>
+          )}
           <>
             {/* (a) Lifecycle events */}
             <div className="text-xs text-ogun-muted mb-2">

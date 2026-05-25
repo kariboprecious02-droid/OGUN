@@ -81,6 +81,9 @@ async function resolveBeneficiary(input: CreatePayoutInput): Promise<Beneficiary
   }
   const beneficiaryType: 'mobile_money' | 'bank_account' =
     input.method === 'bank_transfer' ? 'bank_account' : 'mobile_money';
+  const normalizedMobile = input.beneficiary.mobile_number
+    ? normalizeKEMobile(input.beneficiary.mobile_number)
+    : null;
   return insertBeneficiary({
     id: newId('beneficiary'),
     merchant_id: input.merchant_id,
@@ -90,11 +93,19 @@ async function resolveBeneficiary(input: CreatePayoutInput): Promise<Beneficiary
     provider_recipient_type: beneficiaryType === 'mobile_money' ? 'mobile_money' : 'nuban',
     provider_recipient_code: null,
     name: input.beneficiary.name ?? 'Unknown',
-    mobile_number: input.beneficiary.mobile_number ?? null,
+    mobile_number: normalizedMobile,
     bank_code: input.beneficiary.bank_code ?? null,
     account_number: input.beneficiary.account_number ?? null,
     currency: input.currency,
   });
+}
+
+function normalizeKEMobile(phone: string): string {
+  let cleaned = phone.replace(/[\s\-()]/g, '');
+  if (cleaned.startsWith('+254')) cleaned = '0' + cleaned.slice(4);
+  else if (cleaned.startsWith('254') && cleaned.length >= 12) cleaned = '0' + cleaned.slice(3);
+  else if (cleaned.startsWith('7') && cleaned.length === 9) cleaned = '0' + cleaned;
+  return cleaned;
 }
 
 export async function createPayout(input: CreatePayoutInput): Promise<CreatePayoutResult> {

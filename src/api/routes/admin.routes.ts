@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { parseBody, parseQuery, pagination, resolvePagination } from '@/api/validation';
 import { success, paginated } from '@/infra/response';
 import { OgunError } from '@/infra/errors';
+import { logger } from '@/infra/logger';
 import { submitManualDecision, runCompliancePipeline } from '@/modules/compliance/compliance.service';
 import {
   activateMerchant,
@@ -745,33 +746,47 @@ router.get('/admin/payouts/:id/logs', async (req, res, next) => {
 
     let paystack_inbound: unknown[] = [];
     if (orClauses.length > 0) {
-      webhookWhere.push(`(${orClauses.join(' OR ')})`);
-      const { rows } = await query(
-        `SELECT id, event_type, raw_payload, signature_valid, http_status_returned, received_at
-           FROM paystack_webhook_events
-          WHERE ${webhookWhere.join(' AND ')}
-          ORDER BY received_at ASC
-          LIMIT 50`,
-        webhookVals,
-      );
-      paystack_inbound = rows;
+      try {
+        webhookWhere.push(`(${orClauses.join(' OR ')})`);
+        const { rows } = await query(
+          `SELECT id, event_type, raw_payload, signature_valid, http_status_returned, received_at
+             FROM paystack_webhook_events
+            WHERE ${webhookWhere.join(' AND ')}
+            ORDER BY received_at ASC
+            LIMIT 50`,
+          webhookVals,
+        );
+        paystack_inbound = rows;
+      } catch (err) {
+        logger.error({ err, payout_id: payoutId }, 'failed to query paystack_webhook_events for payout logs');
+      }
     }
 
     // 3. Outbound merchant webhook deliveries
-    const { rows: deliveries } = await query(
-      `SELECT id, event_type, payload, delivery_status, http_status, response_body,
-              created_at, delivered_at, retry_count, url
-         FROM webhook_deliveries
-        WHERE reference_type = 'payout' AND reference_id = $1
-        ORDER BY created_at ASC
-        LIMIT 50`,
-      [payoutId],
-    );
+    let webhook_deliveries: unknown[] = [];
+    try {
+      const { rows: deliveries } = await query(
+        `SELECT wd.id, wd.event_type, wd.payload, wd.delivery_status, wd.http_status,
+                wd.last_error AS response_body, wd.created_at, wd.last_attempt_at AS delivered_at,
+                wd.attempt_count AS retry_count,
+                we.url
+           FROM webhook_deliveries wd
+           LEFT JOIN webhook_endpoints we ON we.id = wd.webhook_endpoint_id
+          WHERE wd.event_type LIKE 'payout.%'
+            AND wd.merchant_id = (SELECT merchant_id FROM payouts WHERE id = $1)
+          ORDER BY wd.created_at ASC
+          LIMIT 50`,
+        [payoutId],
+      );
+      webhook_deliveries = deliveries;
+    } catch (err) {
+      logger.error({ err, payout_id: payoutId }, 'failed to query webhook_deliveries for payout logs');
+    }
 
     res.json(success({
       lifecycle,
       paystack_inbound,
-      webhook_deliveries: deliveries,
+      webhook_deliveries,
     }, { request_id: req.ogunContext.requestId }));
   } catch (err) {
     next(err);
