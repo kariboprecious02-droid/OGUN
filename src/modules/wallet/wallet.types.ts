@@ -30,6 +30,7 @@ export const LedgerTxType = {
   PayoutFeeReversalCredit: 'payout_fee_reversal_credit',
   RefundAdjustmentDebit: 'refund_adjustment_debit',
   ManualAdjustment: 'manual_adjustment',
+  WalletTopupCredit: 'wallet_topup_credit',
 } as const;
 
 export type LedgerTxTypeValue = (typeof LedgerTxType)[keyof typeof LedgerTxType];

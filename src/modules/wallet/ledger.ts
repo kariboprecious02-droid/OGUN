@@ -52,6 +52,8 @@ function deltasFor(
     case LedgerTxType.PayoutFeeReversalCredit:
       // Restores available (reversal after success)
       return { available: amount, reserved: 0 };
+    case LedgerTxType.WalletTopupCredit:
+      return { available: amount, reserved: 0 };
     default:
       return { available: signed, reserved: 0 };
   }

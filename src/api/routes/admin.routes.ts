@@ -30,11 +30,14 @@ import {
 import { newId } from '@/infra/ids';
 import multer from 'multer';
 import { config } from '@/infra/config';
-import { query } from '@/infra/db/pool';
+import { query, withTransaction } from '@/infra/db/pool';
 import { syncPayout } from '@/modules/payout/payout.service';
 import { registerWebhookEndpoint, listWebhookEndpoints, syncWebhookEndpointFromUrl, removeWebhookEndpoints } from '@/modules/webhook/webhook.service';
 import { generateApiKey } from '@/infra/crypto';
 import { enforceRateLimit } from '@/infra/rateLimit';
+import { postLedgerEntry } from '@/modules/wallet/ledger';
+import { LedgerTxType } from '@/modules/wallet/wallet.types';
+import { emitEvent } from '@/modules/webhook/webhook.service';
 
 const router = Router();
 
@@ -421,6 +424,57 @@ router.get('/admin/wallets', async (req, res, next) => {
 });
 
 /**
+ * GET /v1/admin/wallets/:id — wallet detail with KPIs (lifetime funded,
+ * lifetime disbursed, median disbursement).
+ */
+router.get('/admin/wallets/:id', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const { rows } = await query(
+      `SELECT w.*, sm.name AS sub_merchant_name, m.legal_name AS merchant_legal_name
+         FROM wallets w
+         JOIN sub_merchants sm ON sm.id = w.sub_merchant_id
+         JOIN merchants m ON m.id = w.merchant_id
+        WHERE w.id = $1`,
+      [req.params.id],
+    );
+    if (rows.length === 0) throw OgunError.notFound('Wallet', req.params.id);
+    const w = rows[0] as Record<string, unknown>;
+
+    // KPIs: lifetime funded, lifetime disbursed, median disbursement
+    const [{ rows: fundedRows }, { rows: disbursedRows }, { rows: medianRows }] = await Promise.all([
+      query<{ total: string }>(
+        `SELECT COALESCE(SUM(amount), 0)::text AS total FROM wallet_topups WHERE wallet_id = $1`,
+        [req.params.id],
+      ),
+      query<{ total: string }>(
+        `SELECT COALESCE(SUM(amount), 0)::text AS total FROM ledger_entries
+          WHERE wallet_id = $1 AND transaction_type IN ('payout_principal_debit')`,
+        [req.params.id],
+      ),
+      query<{ median: string | null }>(
+        `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY amount)::text AS median
+           FROM ledger_entries
+          WHERE wallet_id = $1 AND transaction_type = 'payout_principal_debit'`,
+        [req.params.id],
+      ),
+    ]);
+
+    res.json(success({
+      ...w,
+      available_balance: Number(w.available_balance),
+      reserved_balance: Number(w.reserved_balance),
+      low_balance_threshold: Number(w.low_balance_threshold ?? 5000),
+      lifetime_funded: Number(fundedRows[0]?.total ?? 0),
+      lifetime_disbursed: Number(disbursedRows[0]?.total ?? 0),
+      median_disbursement: medianRows[0]?.median ? Number(medianRows[0].median) : null,
+    }, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /v1/admin/wallets/:id/ledger — paginated ledger entries for a
  * specific wallet.  Reference link for investigating drift.
  */
@@ -458,6 +512,219 @@ router.get('/admin/wallets/:id/ledger', async (req, res, next) => {
     res.json(
       paginated(normalized, page, limit, Number(totals[0]?.count ?? 0), req.ogunContext.requestId),
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /v1/admin/wallets/:id/topups — paginated funding history for a wallet.
+ */
+router.get('/admin/wallets/:id/topups', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const parsed = parseQuery(pagination, req.query);
+    const { page, limit } = resolvePagination(parsed);
+    const offset = (page - 1) * limit;
+    const [{ rows: items }, { rows: totals }] = await Promise.all([
+      query(
+        `SELECT * FROM wallet_topups WHERE wallet_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+        [req.params.id, limit, offset],
+      ),
+      query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM wallet_topups WHERE wallet_id = $1`,
+        [req.params.id],
+      ),
+    ]);
+    const normalized = items.map((t: Record<string, unknown>) => ({
+      ...t,
+      amount: Number(t.amount),
+      fee_amount: Number(t.fee_amount),
+    }));
+    res.json(paginated(normalized, page, limit, Number(totals[0]?.count ?? 0), req.ogunContext.requestId));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /v1/admin/wallet-topups — admin-initiated wallet funding.
+ *
+ * Validates input, checks freeze status, inserts a wallet_topup record,
+ * posts a wallet_topup_credit ledger entry (idempotent on source_reference),
+ * updates wallet metadata, and emits a wallet.topup.settled webhook event.
+ */
+const topupBody = z.object({
+  wallet_id: z.string().startsWith('wal_'),
+  amount: z.number().int().positive(),
+  currency: z.literal('KES'),
+  source: z.enum(['bank_transfer', 'paybill_transfer']),
+  source_reference: z.string().max(200).nullable().optional(),
+  reason: z.string().min(3).max(500),
+});
+
+router.post('/admin/wallet-topups', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const body = parseBody(topupBody, req.body);
+
+    // Look up wallet
+    const { rows: walletRows } = await query(
+      `SELECT w.*, m.legal_name AS merchant_legal_name, sm.name AS sub_merchant_name
+         FROM wallets w
+         JOIN merchants m ON m.id = w.merchant_id
+         JOIN sub_merchants sm ON sm.id = w.sub_merchant_id
+        WHERE w.id = $1`,
+      [body.wallet_id],
+    );
+    if (walletRows.length === 0) throw OgunError.notFound('Wallet', body.wallet_id);
+    const wallet = walletRows[0] as Record<string, unknown>;
+
+    if (wallet.is_frozen) {
+      throw new OgunError('invalid_request', 'Wallet is frozen. Unfreeze it before funding.', { wallet_id: body.wallet_id }, 422);
+    }
+
+    const topupId = newId('walletTopup');
+    const sourceRef = body.source_reference ?? `topup_${topupId}`;
+    const adminEmail = (req as any).ogunContext?.adminEmail ?? 'admin@ogun-pay.io';
+
+    await withTransaction(async (client) => {
+      // Insert topup record (idempotent on source_reference)
+      const insertResult = await client.query(
+        `INSERT INTO wallet_topups (id, wallet_id, merchant_id, sub_merchant_id, amount, currency, source, source_reference, reason, initiated_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (source_reference) DO NOTHING`,
+        [topupId, body.wallet_id, wallet.merchant_id, wallet.sub_merchant_id, body.amount, body.currency, body.source, sourceRef, body.reason, adminEmail],
+      );
+
+      if (insertResult.rowCount === 0) {
+        // Duplicate — skip ledger + metadata update
+        return;
+      }
+
+      // Post ledger entry
+      await postLedgerEntry(client, {
+        merchantId: wallet.merchant_id as string,
+        subMerchantId: wallet.sub_merchant_id as string,
+        walletId: body.wallet_id,
+        walletType: wallet.wallet_type as 'collection' | 'payout',
+        transactionType: LedgerTxType.WalletTopupCredit,
+        direction: 'credit',
+        amount: body.amount,
+        currency: body.currency,
+        referenceType: 'topup',
+        referenceId: topupId,
+        idempotencyKey: `wallet_topup_credit:${sourceRef}`,
+        description: `Admin wallet funding: ${body.reason}`,
+      });
+
+      // Update wallet metadata
+      await client.query(
+        `UPDATE wallets SET last_funded_at = now(), last_funded_by = $2, updated_at = now() WHERE id = $1`,
+        [body.wallet_id, adminEmail],
+      );
+    });
+
+    // Fetch the topup row (may be the existing one if duplicate)
+    const { rows: topupRows } = await query(
+      `SELECT * FROM wallet_topups WHERE source_reference = $1`,
+      [sourceRef],
+    );
+    const topup = topupRows[0] as Record<string, unknown>;
+
+    // Emit webhook (fire-and-forget)
+    emitEvent({
+      merchantId: wallet.merchant_id as string,
+      type: 'wallet.topup.settled',
+      data: {
+        topup_id: topup.id,
+        wallet_id: body.wallet_id,
+        amount: body.amount,
+        currency: body.currency,
+        source: body.source,
+        source_reference: sourceRef,
+      },
+    }).catch((err) => logger.error({ err }, 'failed to emit wallet.topup.settled'));
+
+    res.status(201).json(success({
+      topup_id: topup.id,
+      wallet_id: body.wallet_id,
+      amount: Number(topup.amount),
+      fee_amount: Number(topup.fee_amount ?? 0),
+      source: topup.source,
+      source_reference: topup.source_reference,
+      initiated_by: topup.initiated_by,
+      status: topup.status,
+      created_at: topup.created_at,
+    }, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /v1/admin/wallets/:id/freeze — freeze a wallet, blocking topups
+ * and disbursements until unfrozen.
+ */
+router.post('/admin/wallets/:id/freeze', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const { reason } = req.body as { reason?: string };
+    const adminEmail = (req as any).ogunContext?.adminEmail ?? 'admin@ogun-pay.io';
+    const { rowCount } = await query(
+      `UPDATE wallets SET is_frozen = true, freeze_reason = $2, frozen_by = $3, frozen_at = now(), updated_at = now()
+        WHERE id = $1 AND is_frozen = false`,
+      [req.params.id, reason ?? 'Admin freeze', adminEmail],
+    );
+    if (rowCount === 0) {
+      const { rows } = await query(`SELECT id, is_frozen FROM wallets WHERE id = $1`, [req.params.id]);
+      if (rows.length === 0) throw OgunError.notFound('Wallet', req.params.id);
+      // Already frozen — return current state
+    }
+    const { rows } = await query(`SELECT * FROM wallets WHERE id = $1`, [req.params.id]);
+    res.json(success(rows[0], { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /v1/admin/wallets/:id/unfreeze — unfreeze a previously frozen wallet.
+ */
+router.post('/admin/wallets/:id/unfreeze', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    await query(
+      `UPDATE wallets SET is_frozen = false, freeze_reason = null, frozen_by = null, frozen_at = null, updated_at = now()
+        WHERE id = $1`,
+      [req.params.id],
+    );
+    const { rows } = await query(`SELECT * FROM wallets WHERE id = $1`, [req.params.id]);
+    if (rows.length === 0) throw OgunError.notFound('Wallet', req.params.id);
+    res.json(success(rows[0], { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /v1/admin/wallets/:id/threshold — update the low-balance alert
+ * threshold (in cents).
+ */
+router.patch('/admin/wallets/:id/threshold', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const { threshold } = req.body as { threshold: number };
+    if (!Number.isInteger(threshold) || threshold < 0) {
+      throw OgunError.invalidRequest('threshold must be a non-negative integer (cents)');
+    }
+    await query(
+      `UPDATE wallets SET low_balance_threshold = $2, updated_at = now() WHERE id = $1`,
+      [req.params.id, threshold],
+    );
+    const { rows } = await query(`SELECT * FROM wallets WHERE id = $1`, [req.params.id]);
+    if (rows.length === 0) throw OgunError.notFound('Wallet', req.params.id);
+    res.json(success(rows[0], { request_id: req.ogunContext.requestId }));
   } catch (err) {
     next(err);
   }

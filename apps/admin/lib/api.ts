@@ -349,6 +349,96 @@ export async function getWalletLedger(
   return paged<LedgerEntry>(`/admin/wallets/${walletId}/ledger?${qs.toString()}`);
 }
 
+export type WalletDetail = WalletSummary & {
+  is_frozen: boolean;
+  freeze_reason: string | null;
+  frozen_by: string | null;
+  frozen_at: string | null;
+  low_balance_threshold: number;
+  last_funded_at: string | null;
+  last_funded_by: string | null;
+  lifetime_funded: number;
+  lifetime_disbursed: number;
+  median_disbursement: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function getWalletDetail(id: string): Promise<WalletDetail> {
+  return request<WalletDetail>(`/admin/wallets/${id}`);
+}
+
+export type WalletTopup = {
+  id: string;
+  wallet_id: string;
+  merchant_id: string;
+  sub_merchant_id: string;
+  amount: number;
+  currency: string;
+  source: string;
+  source_reference: string;
+  reason: string;
+  initiated_by: string;
+  status: string;
+  fee_amount: number;
+  created_at: string;
+};
+
+export async function listWalletTopups(
+  walletId: string,
+  params: { page?: number; limit?: number } = {},
+): Promise<Paginated<WalletTopup>> {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  return paged<WalletTopup>(`/admin/wallets/${walletId}/topups?${qs.toString()}`);
+}
+
+export async function fundWallet(body: {
+  wallet_id: string;
+  amount: number;
+  currency: string;
+  source: 'bank_transfer' | 'paybill_transfer';
+  source_reference: string | null;
+  reason: string;
+}): Promise<{
+  topup_id: string;
+  wallet_id: string;
+  amount: number;
+  fee_amount: number;
+  source: string;
+  source_reference: string;
+  initiated_by: string;
+  status: string;
+  created_at: string;
+}> {
+  return request(`/admin/wallet-topups`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function freezeWallet(id: string, reason: string): Promise<void> {
+  await request(`/admin/wallets/${id}/freeze`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function unfreezeWallet(id: string): Promise<void> {
+  await request(`/admin/wallets/${id}/unfreeze`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export async function updateWalletThreshold(id: string, threshold: number): Promise<void> {
+  await request(`/admin/wallets/${id}/threshold`, {
+    method: 'PATCH',
+    body: JSON.stringify({ threshold }),
+  });
+}
+
 export async function listCollections(params: {
   page?: number;
   limit?: number;

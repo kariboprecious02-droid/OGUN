@@ -49,7 +49,8 @@ export type OgunEventType =
   | 'payout.failed'
   | 'payout.reversed'
   | 'settlement.paid'
-  | 'settlement.failed';
+  | 'settlement.failed'
+  | 'wallet.topup.settled';
 
 export type WebhookEndpointRecord = {
   id: string;

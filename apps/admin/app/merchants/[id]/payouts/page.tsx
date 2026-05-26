@@ -2,10 +2,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { requireAuth } from '@/lib/session';
-import { getMerchantDetail, listPayouts, OgunApiError } from '@/lib/api';
+import { getMerchantDetail, listPayouts, listWallets, OgunApiError } from '@/lib/api';
 import { PanelChrome } from '../_components/PanelChrome';
 import { Badge, formatIsoDate } from '@/components/Badge';
 import { PayoutFilters } from './_components/PayoutFilters';
+import { FundWalletButton } from './_components/FundWalletButton';
 import { ColumnToggle, type ToggleCol } from './_components/ColumnToggle';
 
 const TOGGLE_COLS: ToggleCol[] = [
@@ -46,15 +47,19 @@ export default async function MerchantPayoutsTab({
     beneficiary: typeof sp.beneficiary === 'string' ? sp.beneficiary : undefined,
   };
 
-  const result = await listPayouts({
-    merchant_id: id,
-    limit: 50,
-    status: filters.status || undefined,
-    method: filters.method || undefined,
-    from: filters.from || undefined,
-    to: filters.to || undefined,
-    beneficiary_query: filters.beneficiary || undefined,
-  });
+  const [result, walletsResult] = await Promise.all([
+    listPayouts({
+      merchant_id: id,
+      limit: 50,
+      status: filters.status || undefined,
+      method: filters.method || undefined,
+      from: filters.from || undefined,
+      to: filters.to || undefined,
+      beneficiary_query: filters.beneficiary || undefined,
+    }),
+    listWallets({ merchant_id: id, wallet_type: 'payout', limit: 10 }),
+  ]);
+  const payoutWallet = walletsResult.items[0] ?? null;
 
   // Read toggled columns from cookie
   const cookieStore = await cookies();
@@ -103,6 +108,12 @@ export default async function MerchantPayoutsTab({
         <Kpi label="Reversals" value={String(reversalCount)} />
         <Kpi label="Total" value={String(result.total)} />
       </div>
+
+      {payoutWallet && (
+        <div className="flex justify-end mb-4">
+          <FundWalletButton wallet={payoutWallet} />
+        </div>
+      )}
 
       {/* Filter bar */}
       <PayoutFilters

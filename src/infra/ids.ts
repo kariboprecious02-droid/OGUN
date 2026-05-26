@@ -29,6 +29,7 @@ export const IdPrefix = {
   event: 'evt',
   request: 'req',
   reversal: 'rev',
+  walletTopup: 'tpu',
 } as const;
 
 export type IdKind = keyof typeof IdPrefix;

@@ -45,6 +45,7 @@ const SUBSCRIBABLE_EVENTS = [
   'payout.reversed',
   'settlement.paid',
   'settlement.failed',
+  'wallet.topup.settled',
 ] as const;
 
 function shape(e: WebhookEndpointRecord) {
