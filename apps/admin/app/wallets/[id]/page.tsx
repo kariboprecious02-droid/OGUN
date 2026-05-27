@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
-import { getWalletDetail, listWalletTopups, listPayouts, OgunApiError } from '@/lib/api';
+import { getWalletDetail, listWalletTopups, listPayouts, getWalletLedger, OgunApiError } from '@/lib/api';
 import { Nav } from '@/components/Nav';
 import { Badge, formatCents, formatIsoDate } from '@/components/Badge';
 import { WalletDetailControls } from './_components/WalletDetailControls';
@@ -22,11 +22,12 @@ export default async function WalletDetailPage({
     throw err;
   }
 
-  const [topups, payoutsResult] = await Promise.all([
+  const [topups, payoutsResult, ledger] = await Promise.all([
     listWalletTopups(id, { limit: 20 }).catch(() => ({ items: [], page: 1, limit: 20, total: 0 })),
     w.wallet_type === 'payout'
       ? listPayouts({ merchant_id: w.merchant_id, limit: 5 }).catch(() => ({ items: [], page: 1, limit: 5, total: 0 }))
       : Promise.resolve({ items: [], page: 1, limit: 5, total: 0 }),
+    getWalletLedger(id, { limit: 50 }).catch(() => ({ items: [], page: 1, limit: 50, total: 0 })),
   ]);
 
   const utilizationPct = w.lifetime_funded > 0
@@ -98,6 +99,45 @@ export default async function WalletDetailPage({
             </div>
           </div>
         </div>
+
+        {/* Transactions */}
+        <section className="panel-padded mb-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ogun-muted mb-4">
+            Transactions ({ledger.total})
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="table-default w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="text-left">Date</th>
+                  <th className="text-left">Type</th>
+                  <th className="text-left">Reference</th>
+                  <th className="text-right">Amount</th>
+                  <th className="text-left">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ledger.items.length === 0 && (
+                  <tr><td colSpan={5} className="text-center text-ogun-muted py-6">No transactions yet.</td></tr>
+                )}
+                {ledger.items.map((e) => {
+                  const isCredit = e.direction === 'credit';
+                  return (
+                    <tr key={e.id} className="border-t border-ogun-border">
+                      <td className="text-xs text-ogun-muted">{formatIsoDate(e.created_at)}</td>
+                      <td className="mono text-xs">{e.transaction_type.replace(/_/g, ' ')}</td>
+                      <td className="mono text-xs text-ogun-muted">{e.reference_type}/{e.reference_id.slice(0, 16)}…</td>
+                      <td className={`text-right font-semibold ${isCredit ? 'text-ogun-success' : 'text-ogun-danger'}`}>
+                        {isCredit ? '+' : '−'} {formatCents(e.amount, e.currency)}
+                      </td>
+                      <td className="text-xs text-ogun-muted">{e.description ?? '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         {/* Payouts section */}
         {w.wallet_type === 'payout' && (
