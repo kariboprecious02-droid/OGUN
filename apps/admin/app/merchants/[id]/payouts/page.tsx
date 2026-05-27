@@ -77,14 +77,6 @@ export default async function MerchantPayoutsTab({
     (p) => ['queued', 'processing', 'pending_approval', 'pending_confirmation'].includes(p.status)
       && new Date(p.created_at).getTime() < Date.now() - 3600_000,
   ).length;
-  const reversalCount = result.items.filter((p) => p.reversal_indicator).length;
-
-  const terminalItems = result.items.filter((p) => p.final_resolved_at && p.created_at);
-  const medianLatencyMs = terminalItems.length > 0
-    ? terminalItems
-        .map((p) => new Date(p.final_resolved_at!).getTime() - new Date(p.created_at).getTime())
-        .sort((a, b) => a - b)[Math.floor(terminalItems.length / 2)]
-    : null;
 
   return (
     <PanelChrome
@@ -92,20 +84,21 @@ export default async function MerchantPayoutsTab({
       merchantId={id}
       currentTab="payouts"
     >
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        {payoutWallet && (
+          <Kpi
+            label="Wallet balance"
+            value={`KES ${(payoutWallet.available_balance / 100).toLocaleString()}`}
+            sub={payoutWallet.reserved_balance > 0 ? `+ KES ${(payoutWallet.reserved_balance / 100).toLocaleString()} reserved` : 'available'}
+          />
+        )}
         <Kpi
           label="Volume"
           value={`KES ${(volumeCents / 100).toLocaleString()}`}
           sub={`${result.total} payout${result.total === 1 ? '' : 's'}`}
         />
         <Kpi label="Success rate" value={`${Math.round(successRate * 100)}%`} sub={`${successCount} succeeded`} />
-        <Kpi
-          label="Median latency"
-          value={medianLatencyMs != null ? `${(medianLatencyMs / 1000).toFixed(0)}s` : '—'}
-          sub="dispatch → terminal"
-        />
         <Kpi label="Stuck" value={String(stuckCount)} sub={stuckCount > 0 ? '> 1h old' : 'none'} warn={stuckCount > 0} />
-        <Kpi label="Reversals" value={String(reversalCount)} />
         <Kpi label="Total" value={String(result.total)} />
       </div>
 
