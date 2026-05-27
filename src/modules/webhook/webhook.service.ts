@@ -255,6 +255,13 @@ export async function emitEvent(input: {
  * 0003 and therefore has no encrypted secret.
  */
 export async function dispatchDelivery(deliveryId: string): Promise<boolean> {
+  const claimResult = await query(
+    `UPDATE webhook_deliveries SET delivery_status = 'dispatching', last_attempt_at = now()
+      WHERE id = $1 AND delivery_status = 'pending'`,
+    [deliveryId],
+  );
+  if ((claimResult.rowCount ?? 0) === 0) return false;
+
   const { rows } = await query<{
     id: string;
     merchant_id: string;

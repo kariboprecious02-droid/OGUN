@@ -95,6 +95,7 @@ export function WalletDetailControls({
         <FundingModal
           wallets={[walletSummary]}
           preselectedWalletId={walletId}
+          preselectedContext="wallet detail"
           onClose={() => setShowFunding(false)}
         />
       )}

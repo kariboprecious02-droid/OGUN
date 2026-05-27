@@ -21,10 +21,12 @@ const SOURCES = [
 export function FundingModal({
   wallets,
   preselectedWalletId,
+  preselectedContext,
   onClose,
 }: {
   wallets: WalletSummary[];
   preselectedWalletId?: string;
+  preselectedContext?: string;
   onClose: () => void;
 }): React.ReactElement {
   const router = useRouter();
@@ -114,7 +116,7 @@ export function FundingModal({
           <label className="text-xs font-medium text-ogun-text block mb-1">
             Wallet
             {cameFromMerchant && (
-              <span className="text-ogun-accent-on-dark normal-case ml-1 font-normal">— pre-selected from merchant payouts page</span>
+              <span className="text-ogun-accent-on-dark normal-case ml-1 font-normal">— pre-selected from {preselectedContext ?? 'merchant payouts page'}</span>
             )}
           </label>
           <select
