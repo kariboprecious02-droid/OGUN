@@ -237,16 +237,47 @@ async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResul
     });
   } catch (err) {
     const latencyMs = Date.now() - dispatchStart;
-    logger.error({ err, collection_id: row.id, latency_ms: latencyMs },
-      'provider dispatch timed out or errored');
+    const axiosErr = err as { response?: { status?: number; data?: Record<string, unknown> }; code?: string };
+    const httpStatus = axiosErr.response?.status;
+    const isProviderRejection = httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500;
+    const providerMessage = (axiosErr.response?.data as Record<string, unknown> | undefined)?.message as string | undefined;
+
+    logger.error({ err, collection_id: row.id, latency_ms: latencyMs, http_status: httpStatus },
+      isProviderRejection ? 'provider rejected request' : 'provider dispatch timed out or errored');
+
+    if (isProviderRejection) {
+      recordCollectionEvent({
+        collection_id: row.id,
+        event_type: 'provider.errored',
+        source: 'orchestrator',
+        http_status: httpStatus,
+        latency_ms: latencyMs,
+        payload: { err_message: providerMessage ?? (err as Error).message },
+        message: `provider returned HTTP ${httpStatus}: ${providerMessage ?? 'unknown'}`,
+      });
+
+      await resolveCollection(row.id, {
+        source: 'api',
+        normalizedStatus: 'failed',
+        failureReason: `paystack_${httpStatus}`,
+      });
+
+      return {
+        business_status: CollectionBusinessStatus.Failed,
+        provider_call_state: 'completed',
+        next_action: null,
+        provider_message: providerMessage ?? null,
+        failure_reason: `paystack_${httpStatus}`,
+      };
+    }
 
     recordCollectionEvent({
       collection_id: row.id,
       event_type: 'provider.timed_out',
       source: 'orchestrator',
       latency_ms: latencyMs,
-      payload: { next_action: null, err_message: (err as Error).message },
-      message: `provider dispatch threw after ${latencyMs}ms (catastrophic — connector inner catch did not handle)`,
+      payload: { next_action: null, err_code: axiosErr.code, err_message: (err as Error).message },
+      message: `provider dispatch failed after ${latencyMs}ms`,
     });
 
     await enqueuePollingJob({
@@ -260,8 +291,8 @@ async function dispatchToProviderSync(row: CollectionRow): Promise<DispatchResul
       collection_id: row.id,
       event_type: 'polling.enqueued',
       source: 'orchestrator',
-      payload: { reason: 'catastrophic_throw', provider_reference: null },
-      message: 'polling enqueued after catastrophic throw — TTL will resolve to failed',
+      payload: { reason: 'provider_unreachable', provider_reference: null },
+      message: 'polling enqueued after provider timeout/error — TTL will resolve to failed',
     });
 
     return {
