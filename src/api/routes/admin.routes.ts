@@ -13,6 +13,7 @@ import { submitManualDecision, runCompliancePipeline } from '@/modules/complianc
 import {
   activateMerchant,
   suspendMerchant,
+  reinstateMerchant,
   getMerchant,
   createMerchant,
   createSubMerchant,
@@ -172,6 +173,28 @@ router.post('/admin/merchants/:merchantId/suspend', async (req, res, next) => {
     requireAdmin(req);
     const body = parseBody(suspendBody, req.body);
     const updated = await suspendMerchant(req.params.merchantId, body.reason);
+    res.json(success({ id: updated.id, status: updated.status }, { request_id: req.ogunContext.requestId }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+const reinstateBody = z.object({ note: z.string().max(500).optional() });
+
+router.post('/admin/merchants/:merchantId/reinstate', async (req, res, next) => {
+  try {
+    requireAdmin(req);
+    const body = parseBody(reinstateBody, req.body);
+    const updated = await reinstateMerchant(req.params.merchantId, body.note);
+    emitEvent({
+      merchantId: updated.id,
+      type: 'merchant.reinstated',
+      data: {
+        merchant_id: updated.id,
+        status: updated.status,
+        note: body.note ?? null,
+      },
+    }).catch((err) => logger.error({ err }, 'failed to emit merchant.reinstated'));
     res.json(success({ id: updated.id, status: updated.status }, { request_id: req.ogunContext.requestId }));
   } catch (err) {
     next(err);
@@ -736,7 +759,11 @@ router.patch('/admin/wallets/:id/threshold', async (req, res, next) => {
 const listCollectionsQuery = pagination.extend({
   merchant_id: z.string().startsWith('mrc_').optional(),
   sub_merchant_id: z.string().startsWith('smrc_').optional(),
-  business_status: z.enum(['pending', 'successful', 'failed', 'refunded']).optional(),
+  business_status: z.string().optional(),
+  method: z.string().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  search: z.string().optional(),
 });
 
 router.get('/admin/collections', async (req, res, next) => {
@@ -748,16 +775,40 @@ router.get('/admin/collections', async (req, res, next) => {
     const vals: unknown[] = [];
     let i = 1;
     if (parsed.merchant_id) {
-      where.push(`merchant_id = $${i++}`);
+      where.push(`c.merchant_id = $${i++}`);
       vals.push(parsed.merchant_id);
     }
     if (parsed.sub_merchant_id) {
-      where.push(`sub_merchant_id = $${i++}`);
+      where.push(`c.sub_merchant_id = $${i++}`);
       vals.push(parsed.sub_merchant_id);
     }
     if (parsed.business_status) {
-      where.push(`business_status = $${i++}`);
-      vals.push(parsed.business_status);
+      const statuses = parsed.business_status.split(',').filter(Boolean);
+      if (statuses.length === 1) {
+        where.push(`c.business_status = $${i++}`);
+        vals.push(statuses[0]);
+      } else if (statuses.length > 1) {
+        const placeholders = statuses.map(() => `$${i++}`).join(',');
+        where.push(`c.business_status IN (${placeholders})`);
+        vals.push(...statuses);
+      }
+    }
+    if (parsed.method) {
+      where.push(`c.method = $${i++}`);
+      vals.push(parsed.method);
+    }
+    if (parsed.from) {
+      where.push(`c.created_at >= $${i++}`);
+      vals.push(parsed.from);
+    }
+    if (parsed.to) {
+      where.push(`c.created_at <= $${i++}`);
+      vals.push(parsed.to);
+    }
+    if (parsed.search) {
+      where.push(`(c.id ILIKE '%' || $${i} || '%' OR c.customer_phone ILIKE '%' || $${i} || '%')`);
+      vals.push(parsed.search);
+      i++;
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const offset = (page - 1) * limit;
@@ -765,18 +816,19 @@ router.get('/admin/collections', async (req, res, next) => {
       query(
         `SELECT c.id, c.merchant_id, c.sub_merchant_id, c.amount, c.fee_amount, c.currency,
                 c.method, c.provider, c.business_status, c.internal_status, c.status_reason,
-                c.customer_phone, c.merchant_reference, c.settlement_eligible,
-                c.wallet_credited, c.refund_status, c.created_at, c.final_resolved_at,
+                c.customer_phone, c.customer_email, c.provider_reference, c.merchant_reference,
+                c.settlement_eligible, c.wallet_credited, c.refund_status,
+                c.created_at, c.final_resolved_at,
                 sm.name AS sub_merchant_name
            FROM collections c
            LEFT JOIN sub_merchants sm ON sm.id = c.sub_merchant_id
-           ${whereSql ? whereSql.replace(/\b(merchant_id|sub_merchant_id|business_status)\b/g, 'c.$1') : ''}
+           ${whereSql}
           ORDER BY c.created_at DESC
           LIMIT $${i++} OFFSET $${i++}`,
         [...vals, limit, offset],
       ),
       query<{ count: string }>(
-        `SELECT count(*)::text AS count FROM collections ${whereSql}`,
+        `SELECT count(*)::text AS count FROM collections c ${whereSql}`,
         vals,
       ),
     ]);
@@ -836,10 +888,12 @@ router.get('/admin/collections/:id/logs', async (req, res, next) => {
       ).catch(() => ({ rows: [] })),
       query(
         `SELECT wd.id, wd.event_type, wd.payload, wd.delivery_status, wd.http_status,
-                wd.response_body, wd.created_at, wd.delivered_at, wd.retry_count, we.url
+                wd.last_error AS response_body, wd.created_at, wd.last_attempt_at AS delivered_at,
+                wd.attempt_count AS retry_count, we.url
            FROM webhook_deliveries wd
-           JOIN webhook_endpoints we ON we.id = wd.endpoint_id
-          WHERE wd.payload->>'collection_id' = $1
+           LEFT JOIN webhook_endpoints we ON we.id = wd.webhook_endpoint_id
+          WHERE wd.event_type LIKE 'collection.%'
+            AND wd.payload->'data'->>'collection_id' = $1
           ORDER BY wd.created_at`,
         [req.params.id],
       ).catch(() => ({ rows: [] })),

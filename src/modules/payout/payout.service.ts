@@ -100,6 +100,44 @@ async function resolveBeneficiary(input: CreatePayoutInput): Promise<Beneficiary
   });
 }
 
+/**
+ * Gate the requested payout method against the merchant's enabled_payout_methods
+ * config (vocabulary: 'mpesa' | 'airtel' | 'bank'). The 'demo' method is a
+ * sandbox rail and is never gated. Throws 422 if no methods are enabled at all,
+ * or if the specific requested method isn't in the enabled set.
+ */
+function assertPayoutMethodEnabled(
+  merchantId: string,
+  input: CreatePayoutInput,
+  enabled: string[],
+): void {
+  if (input.method === 'demo') return;
+
+  if (enabled.length === 0) {
+    throw OgunError.payoutMethodsDisabled(merchantId);
+  }
+
+  let satisfied: boolean;
+  if (input.method === 'bank_transfer') {
+    satisfied = enabled.includes('bank');
+  } else {
+    // mobile_money — satisfied if either mobile rail is enabled. Narrow by
+    // beneficiary bank_code when present (MPESA / AIRTEL), else accept either.
+    const code = (input.beneficiary.bank_code ?? '').toUpperCase();
+    if (code.includes('MPESA') || code === 'MPS') satisfied = enabled.includes('mpesa');
+    else if (code.includes('AIRTEL')) satisfied = enabled.includes('airtel');
+    else satisfied = enabled.includes('mpesa') || enabled.includes('airtel');
+  }
+
+  if (!satisfied) {
+    throw OgunError.payoutMethodNotEnabled({
+      merchantId,
+      requestedMethod: input.method,
+      enabled,
+    });
+  }
+}
+
 function normalizeKEMobile(phone: string): string {
   let cleaned = phone.replace(/[\s\-()]/g, '');
   if (cleaned.startsWith('+254')) cleaned = '0' + cleaned.slice(4);
@@ -120,6 +158,7 @@ export async function createPayout(input: CreatePayoutInput): Promise<CreatePayo
   if (sub.status !== 'active') throw OgunError.subMerchantNotActive(sub.id);
 
   const settings = await resolveEffectiveSettings(merchant.id, sub.id);
+  assertPayoutMethodEnabled(merchant.id, input, settings.enabled_payout_methods ?? []);
 
   const feeSnapshot = computePayoutFee(
     input.amount,

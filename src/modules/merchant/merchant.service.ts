@@ -161,6 +161,23 @@ export async function suspendMerchant(merchantId: string, reason: string): Promi
 }
 
 /**
+ * Reinstate a suspended merchant back to active. Only valid from the
+ * `suspended` state — the activate endpoint handles the onboarding
+ * completion transition, this handles the operational reverse of suspend.
+ */
+export async function reinstateMerchant(merchantId: string, note?: string): Promise<MerchantRow> {
+  const merchant = await getMerchant(merchantId);
+  if (merchant.status !== MerchantStatus.Suspended) {
+    throw OgunError.invalidRequest(
+      `Cannot reinstate merchant from status '${merchant.status}' — reinstate only applies to suspended merchants.`,
+    );
+  }
+  const m = await transitionMerchant(merchantId, MerchantStatus.Active);
+  logger.info({ merchant_id: merchantId, note }, 'merchant reinstated');
+  return m;
+}
+
+/**
  * Partial update of a merchant profile. Only whitelisted columns are
  * writable; status and settlement_currency cannot change after create.
  * The underlying repository filters the column list for safety.

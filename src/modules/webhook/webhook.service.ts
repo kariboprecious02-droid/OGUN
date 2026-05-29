@@ -39,6 +39,7 @@ type WebhookEndpointRow = {
 export type OgunEventType =
   | 'merchant.activated'
   | 'merchant.suspended'
+  | 'merchant.reinstated'
   | 'collection.created'
   | 'collection.succeeded'
   | 'collection.failed'

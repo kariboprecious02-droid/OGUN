@@ -87,8 +87,12 @@ export async function createCollection(
   }
 
   const settings = await resolveEffectiveSettings(merchant.id, sub.id);
-  if (!settings.enabled_methods.includes(input.method) && input.method !== 'demo') {
-    throw OgunError.methodNotEnabled(input.method);
+  if (input.method !== 'demo' && !settings.enabled_methods.includes(input.method)) {
+    throw OgunError.collectionMethodNotEnabled({
+      merchantId: merchant.id,
+      requestedMethod: input.method,
+      enabled: settings.enabled_methods ?? [],
+    });
   }
 
   const feeSnapshot = computeCollectionFee(

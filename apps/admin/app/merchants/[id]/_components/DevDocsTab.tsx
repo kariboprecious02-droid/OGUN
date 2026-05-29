@@ -188,6 +188,45 @@ function payoutMethods(baseUrl: string): MethodSpec[] {
   ];
 }
 
+type ErrorRow = {
+  http: number;
+  code: string;
+  message: string;
+  when: string;
+};
+
+const ERROR_CODES: ErrorRow[] = [
+  { http: 400, code: 'invalid_request', message: '(varies by field)', when: 'Request body or params failed validation' },
+  { http: 401, code: 'unauthorized', message: 'Invalid API credentials', when: 'Bearer token missing or invalid' },
+  { http: 403, code: 'forbidden', message: 'Insufficient permissions', when: 'Admin-only or scope-restricted endpoint' },
+  { http: 404, code: 'resource_not_found', message: '<resource> not found', when: "The referenced object doesn't exist" },
+  { http: 409, code: 'idempotency_conflict', message: 'Idempotency-Key reused with a different request body', when: 'Same Idempotency-Key, different payload' },
+  { http: 409, code: 'duplicate_request', message: 'Duplicate request', when: 'A concurrent identical request is in flight' },
+  { http: 422, code: 'merchant_not_active', message: 'Merchant <id> is not active', when: 'Merchant is not in active status' },
+  { http: 422, code: 'sub_merchant_not_active', message: 'Sub-merchant <id> is not active', when: 'Sub-merchant is not active' },
+  { http: 422, code: 'method_not_enabled', message: 'Method <m> is not enabled', when: 'Legacy method gate' },
+  { http: 422, code: 'payout_methods_disabled', message: 'This merchant has no enabled payout methods. Enable at least one method in Settings → Accounts before processing payouts.', when: 'Payout attempted with empty enabled_payout_methods' },
+  { http: 422, code: 'payout_method_not_enabled', message: "Payout method '<m>' is not enabled for this merchant.", when: 'Requested payout method not in the enabled set (details.enabled lists what IS enabled)' },
+  { http: 422, code: 'collection_method_not_enabled', message: "Collection method '<m>' is not enabled for this merchant.", when: 'Requested collection method not enabled' },
+  { http: 422, code: 'insufficient_payout_balance', message: 'Insufficient funds. Please fund your payout wallet and retry.', when: 'Payout wallet balance < total_debit (details has available_balance + required)' },
+  { http: 422, code: 'compliance_pending', message: '(varies)', when: 'Action blocked pending compliance review' },
+  { http: 422, code: 'wallet_frozen', message: 'Wallet is frozen. Unfreeze it before funding.', when: 'Funding attempted on a frozen wallet' },
+  { http: 429, code: 'rate_limited', message: '(varies)', when: 'Too many requests; back off and retry' },
+  { http: 502, code: 'provider_timeout', message: 'Provider <name> timed out', when: 'Upstream provider (Paystack) timed out' },
+  { http: 502, code: 'provider_rejected', message: 'Provider <name> rejected: <reason>', when: 'Upstream provider returned an error' },
+  { http: 500, code: 'internal_error', message: 'Internal server error', when: 'Unexpected server fault — safe to retry' },
+];
+
+const ERROR_RESPONSE_SHAPE = {
+  status: 'error',
+  error: {
+    code: 'insufficient_payout_balance',
+    message: 'Insufficient funds. Please fund your payout wallet and retry.',
+    details: {},
+  },
+  meta: { request_id: 'req_...' },
+};
+
 const WEBHOOK_EVENTS = [
   'merchant.activated',
   'merchant.suspended',
@@ -389,6 +428,76 @@ export function DevDocsTab({
         </dl>
       </section>
 
+      {/* ---- Errors ---- */}
+      <section className="panel-padded space-y-4">
+        <h2 className="text-lg font-semibold text-ogun-text">Errors</h2>
+        <p className="text-sm text-ogun-muted">
+          Errors are returned with a non-2xx HTTP status and a consistent JSON
+          envelope. Inspect <span className="mono">error.code</span> for stable,
+          machine-readable handling — the <span className="mono">message</span> is
+          human-readable and may change.
+        </p>
+
+        <div>
+          <div className="text-xs font-medium text-ogun-muted uppercase tracking-wide mb-2">
+            Error response shape
+          </div>
+          <CodeBlock code={JSON.stringify(ERROR_RESPONSE_SHAPE, null, 2)} />
+        </div>
+
+        <div>
+          <div className="text-xs font-medium text-ogun-muted uppercase tracking-wide mb-2">
+            Error code reference
+          </div>
+          <div className="overflow-x-auto">
+            <table className="table-default">
+              <thead>
+                <tr>
+                  <th>HTTP</th>
+                  <th>Code</th>
+                  <th>Message</th>
+                  <th>When it fires</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ERROR_CODES.map((e) => (
+                  <tr key={e.code}>
+                    <td className="whitespace-nowrap">{e.http}</td>
+                    <td className="mono whitespace-nowrap">{e.code}</td>
+                    <td>{e.message}</td>
+                    <td>{e.when}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs font-medium text-ogun-muted uppercase tracking-wide mb-2">
+            Retry guidance
+          </div>
+          <ul className="list-disc pl-5 space-y-1 text-sm text-ogun-muted">
+            <li>
+              5xx errors (<span className="mono">provider_timeout</span>,{' '}
+              <span className="mono">provider_rejected</span>,{' '}
+              <span className="mono">internal_error</span>) are retriable with
+              exponential backoff.
+            </li>
+            <li>
+              <span className="mono">rate_limited</span> (429) is retriable after
+              the indicated cooldown.
+            </li>
+            <li>4xx errors are terminal — fix the request before retrying.</li>
+            <li>
+              <span className="mono">idempotency_conflict</span> means you reused
+              an Idempotency-Key with a different body; generate a new key and
+              retry.
+            </li>
+          </ul>
+        </div>
+      </section>
+
       {/* ---- Collections ---- */}
       <section className="space-y-6">
         <h2 className="text-lg font-semibold text-ogun-text">Collections</h2>
@@ -414,7 +523,9 @@ export function DevDocsTab({
 
         {enabledPayouts.length === 0 ? (
           <div className="panel-padded border-ogun-warn/50 bg-ogun-warn/10 text-ogun-warn text-sm">
-            No payout methods enabled — configure in the Accounts tab.
+            No payout methods are currently enabled for this merchant. Enable
+            M-Pesa B2C, Airtel Disbursement, or Bank EFT under Settings →
+            Accounts to expose payout API docs here.
           </div>
         ) : (
           <div className="space-y-8">

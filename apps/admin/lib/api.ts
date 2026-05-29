@@ -174,6 +174,8 @@ export type CollectionSummary = {
   internal_status: string;
   status_reason: string | null;
   customer_phone: string;
+  customer_email: string | null;
+  provider_reference: string | null;
   merchant_reference: string | null;
   settlement_eligible: boolean;
   wallet_credited: boolean;
@@ -445,6 +447,10 @@ export async function listCollections(params: {
   merchant_id?: string;
   sub_merchant_id?: string;
   business_status?: string;
+  method?: string;
+  from?: string;
+  to?: string;
+  search?: string;
 } = {}): Promise<Paginated<CollectionSummary>> {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -456,8 +462,6 @@ export async function listCollections(params: {
 export type CollectionDetail = CollectionSummary & {
   customer_amount: number;
   customer_name: string | null;
-  customer_email: string | null;
-  provider_reference: string | null;
   provider_submission_at: string | null;
   provider_call_state: string | null;
   provider_message: string | null;

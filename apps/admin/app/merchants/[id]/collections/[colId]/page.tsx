@@ -369,11 +369,15 @@ export default async function CollectionDetailPage({
                 </>
               )}
 
-              {logs.webhookDeliveries.length > 0 && (
+              <div className="text-xs text-ogun-muted mb-2">
+                Outbound merchant webhooks ({logs.webhookDeliveries.length})
+              </div>
+              {logs.webhookDeliveries.length === 0 ? (
+                <p className="text-xs text-ogun-muted mb-4 p-2 bg-ogun-bg rounded-md border border-ogun-border">
+                  No outbound webhook deliveries for this collection — verify a webhook URL is configured under Dev Docs.
+                </p>
+              ) : (
                 <>
-                  <div className="text-xs text-ogun-muted mb-2">
-                    Outbound merchant webhooks ({logs.webhookDeliveries.length})
-                  </div>
                   <div className="overflow-x-auto mb-4 space-y-0">
                     {logs.webhookDeliveries.map((d) => (
                       <details key={d.id} className="border-t border-ogun-border">

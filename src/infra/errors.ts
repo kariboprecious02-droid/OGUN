@@ -12,6 +12,9 @@ export const ErrorCode = {
   MerchantNotActive: 'merchant_not_active',
   SubMerchantNotActive: 'sub_merchant_not_active',
   MethodNotEnabled: 'method_not_enabled',
+  PayoutMethodsDisabled: 'payout_methods_disabled',
+  PayoutMethodNotEnabled: 'payout_method_not_enabled',
+  CollectionMethodNotEnabled: 'collection_method_not_enabled',
   InsufficientPayoutBalance: 'insufficient_payout_balance',
   CompliancePending: 'compliance_pending',
   ProviderTimeout: 'provider_timeout',
@@ -32,6 +35,9 @@ const DEFAULT_HTTP_STATUS: Record<ErrorCodeValue, number> = {
   merchant_not_active: 422,
   sub_merchant_not_active: 422,
   method_not_enabled: 422,
+  payout_methods_disabled: 422,
+  payout_method_not_enabled: 422,
+  collection_method_not_enabled: 422,
   insufficient_payout_balance: 422,
   compliance_pending: 422,
   provider_timeout: 502,
@@ -106,6 +112,38 @@ export class OgunError extends Error {
 
   static methodNotEnabled(method: string): OgunError {
     return new OgunError(ErrorCode.MethodNotEnabled, `Method ${method} is not enabled`);
+  }
+
+  static payoutMethodsDisabled(merchantId: string): OgunError {
+    return new OgunError(
+      ErrorCode.PayoutMethodsDisabled,
+      'This merchant has no enabled payout methods. Enable at least one method in Settings → Accounts before processing payouts.',
+      { merchant_id: merchantId },
+    );
+  }
+
+  static payoutMethodNotEnabled(details: {
+    merchantId: string;
+    requestedMethod: string;
+    enabled: string[];
+  }): OgunError {
+    return new OgunError(
+      ErrorCode.PayoutMethodNotEnabled,
+      `Payout method '${details.requestedMethod}' is not enabled for this merchant.`,
+      { merchant_id: details.merchantId, requested_method: details.requestedMethod, enabled: details.enabled },
+    );
+  }
+
+  static collectionMethodNotEnabled(details: {
+    merchantId: string;
+    requestedMethod: string;
+    enabled: string[];
+  }): OgunError {
+    return new OgunError(
+      ErrorCode.CollectionMethodNotEnabled,
+      `Collection method '${details.requestedMethod}' is not enabled for this merchant.`,
+      { merchant_id: details.merchantId, requested_method: details.requestedMethod, enabled: details.enabled },
+    );
   }
 
   static providerTimeout(provider: string): OgunError {

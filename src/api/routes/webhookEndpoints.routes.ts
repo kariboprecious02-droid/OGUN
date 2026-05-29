@@ -34,6 +34,7 @@ const router = Router();
 const SUBSCRIBABLE_EVENTS = [
   'merchant.activated',
   'merchant.suspended',
+  'merchant.reinstated',
   'collection.created',
   'collection.succeeded',
   'collection.failed',

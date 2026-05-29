@@ -10,6 +10,8 @@ import { FundWalletButton } from './_components/FundWalletButton';
 import { ColumnToggle, type ToggleCol } from './_components/ColumnToggle';
 
 const TOGGLE_COLS: ToggleCol[] = [
+  { key: 'fee', label: 'Fee' },
+  { key: 'total_debit', label: 'Total debit' },
   { key: 'provider_status', label: 'Provider status' },
   { key: 'trf_code', label: 'TRF code' },
   { key: 'reference', label: 'Reference' },
@@ -135,8 +137,8 @@ export default async function MerchantPayoutsTab({
               <th className="text-left">Method</th>
               <th className="text-left">Beneficiary</th>
               <th className="text-right">Amount</th>
-              <th className="text-right">Fee</th>
-              <th className="text-right">Total debit</th>
+              {enabledToggleCols.has('fee') && <th className="text-right">Fee</th>}
+              {enabledToggleCols.has('total_debit') && <th className="text-right">Total debit</th>}
               <th className="text-left">Status</th>
               <th className="text-left">Created</th>
               <th className="text-left">Resolved</th>
@@ -154,7 +156,7 @@ export default async function MerchantPayoutsTab({
           <tbody>
             {result.items.length === 0 && (
               <tr>
-                <td colSpan={9 + enabledToggleCols.size} className="text-center text-ogun-muted py-8">
+                <td colSpan={7 + enabledToggleCols.size} className="text-center text-ogun-muted py-8">
                   No payouts found.
                 </td>
               </tr>
@@ -172,11 +174,15 @@ export default async function MerchantPayoutsTab({
                 <td>{p.method}</td>
                 <td className="text-xs max-w-[140px] truncate">{p.beneficiary_name ?? '—'}</td>
                 <td className="text-right">KES {(Number(p.recipient_amount) / 100).toLocaleString()}</td>
-                <td className="text-right text-ogun-muted">
-                  KES {(Number(p.fee_amount) / 100).toLocaleString()}
-                  <span className="ml-1 text-[10px] text-ogun-muted">{p.fee_model === 'recipient_covers' ? 'RC' : 'MC'}</span>
-                </td>
-                <td className="text-right">KES {(Number(p.total_debit) / 100).toLocaleString()}</td>
+                {enabledToggleCols.has('fee') && (
+                  <td className="text-right text-ogun-muted">
+                    KES {(Number(p.fee_amount) / 100).toLocaleString()}
+                    <span className="ml-1 text-[10px] text-ogun-muted">{p.fee_model === 'recipient_covers' ? 'RC' : 'MC'}</span>
+                  </td>
+                )}
+                {enabledToggleCols.has('total_debit') && (
+                  <td className="text-right">KES {(Number(p.total_debit) / 100).toLocaleString()}</td>
+                )}
                 <td><Badge status={p.status} /></td>
                 <td className="text-xs text-ogun-muted">{formatIsoDate(p.created_at)}</td>
                 <td className="text-xs text-ogun-muted">{p.final_resolved_at ? formatIsoDate(p.final_resolved_at) : '—'}</td>

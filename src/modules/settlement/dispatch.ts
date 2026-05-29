@@ -30,6 +30,7 @@ import { insertBeneficiary } from '@/modules/payout/beneficiary.repository';
 import { createPayout } from '@/modules/payout/payout.service';
 import { resolveEffectiveSettings } from '@/modules/merchant/settings.repository';
 import { resolvePaystackBankCode } from '@/modules/connectors/paystackBanks';
+import { OgunError } from '@/infra/errors';
 
 type SubMerchantDestination = {
   bank_name?: string;
@@ -128,6 +129,32 @@ export async function dispatchSettlementPayout(settlementId: string): Promise<vo
     logger.error({ err, settlementId }, 'dispatchSettlementPayout: resolveEffectiveSettings threw');
     throw err;
   }
+  // Gate the settlement rail against the merchant's enabled payout methods
+  // BEFORE pre-funding the payout wallet, so a disabled rail fails cleanly
+  // rather than leaking a wallet top-up credit that never gets debited.
+  const enabledPayout = settings.enabled_payout_methods ?? [];
+  const railBankCode = destination.bank_code
+    ?? (destination.bank_name ? resolvePaystackBankCode(destination.bank_name) : null);
+  const railIsBank = !!(destination.account_number && railBankCode);
+  const railMethod = railIsBank
+    ? 'bank_transfer'
+    : (destination.mobile_number ? 'mobile_money' : 'demo');
+  if (railMethod !== 'demo') {
+    if (enabledPayout.length === 0) {
+      throw OgunError.payoutMethodsDisabled(settlement.merchant_id);
+    }
+    const railSatisfied = railMethod === 'bank_transfer'
+      ? enabledPayout.includes('bank')
+      : enabledPayout.includes('mpesa') || enabledPayout.includes('airtel');
+    if (!railSatisfied) {
+      throw OgunError.payoutMethodNotEnabled({
+        merchantId: settlement.merchant_id,
+        requestedMethod: railMethod,
+        enabled: enabledPayout,
+      });
+    }
+  }
+
   const railFee = Math.round((netAmount * settings.payout_fee_pct) / 100);
   const totalDebit =
     settings.payout_fee_model === 'merchant_covers' ? netAmount + railFee : netAmount;

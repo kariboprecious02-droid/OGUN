@@ -6,6 +6,10 @@ import { Nav } from '@/components/Nav';
 import { Badge, formatCents, formatIsoDate } from '@/components/Badge';
 import { WalletDetailControls } from './_components/WalletDetailControls';
 
+// Always render fresh so router.refresh() after a funding event re-fetches
+// the balance, KPIs, funding history, AND transactions list together.
+export const dynamic = 'force-dynamic';
+
 export default async function WalletDetailPage({
   params,
 }: {
